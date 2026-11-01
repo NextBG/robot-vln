@@ -165,14 +165,41 @@ def calibrate(objp, img_pts, size):
     return rms, K, D, np.array(errs)
 
 
+def detect_pattern(cap, preview, show):
+    """Find the inner-corner count by trying common sizes (largest first) on live frames."""
+    sizes = sorted([(c, r) for c in range(4, 14) for r in range(3, 11) if c >= r], key=lambda s: -s[0] * s[1])
+    print('[calib] 自动识别棋盘规格：请把整块棋盘举到画面中央，保持不动', flush=True)
+    t0, last = time.time(), 0.0
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            continue
+        preview.set(frame)
+        if show:
+            cv2.imshow('calib', frame)
+            if cv2.waitKey(1) & 0xFF in (ord('q'), 27):
+                return None
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        for s in sizes:
+            if cv2.findChessboardCorners(gray, s, cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_FAST_CHECK)[0]:
+                # the FAST_CHECK hit can be a sub-board; confirm the full detection
+                if cv2.findChessboardCorners(gray, s, cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE)[0]:
+                    print(f'[calib] 识别到棋盘：{s[0]}x{s[1]} 内角点', flush=True)
+                    return s
+        if time.time() - last > 3:
+            last = time.time()
+            print(f'[calib] 还没看到棋盘 ({time.time() - t0:.0f}s, 平均亮度 {gray.mean():.0f}/255)', flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--device', default='/dev/vln_cam')
     ap.add_argument('--width', type=int, default=640)
     ap.add_argument('--height', type=int, default=480)
-    ap.add_argument('--cols', type=int, required=True, help='inner corners per row')
-    ap.add_argument('--rows', type=int, required=True, help='inner corners per column')
-    ap.add_argument('--square', type=float, required=True, help='square size in metres')
+    ap.add_argument('--cols', type=int, default=0, help='inner corners per row (0 = auto-detect)')
+    ap.add_argument('--rows', type=int, default=0, help='inner corners per column (0 = auto-detect)')
+    ap.add_argument('--square', type=float, default=0.025,
+                    help='square size in metres (does not affect intrinsics, only extrinsic scale)')
     ap.add_argument('--min-samples', type=int, default=25)
     ap.add_argument('--max-samples', type=int, default=45)
     ap.add_argument('--out', default=DEFAULT_OUT)
@@ -201,6 +228,11 @@ def main():
         cv2.setWindowProperty('calib', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
     pattern = (a.cols, a.rows)
+    if not a.cols or not a.rows:
+        pattern = detect_pattern(cap, preview, show)
+        if pattern is None:
+            sys.exit('[calib] stopped before a board was found')
+        a.cols, a.rows = pattern
     objp = np.zeros((a.cols * a.rows, 3), np.float32)
     objp[:, :2] = np.mgrid[0:a.cols, 0:a.rows].T.reshape(-1, 2) * a.square
     crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)

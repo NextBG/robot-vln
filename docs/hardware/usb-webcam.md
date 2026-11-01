@@ -53,3 +53,11 @@ python3 ~/robot-vln/tools/calibrate_camera.py --cols 9 --rows 6 --square 0.025
 
 在 `config/extrinsics.yaml` 中填写 `camera_link` 相对 `base_link` 的位置（x 前、y 左、z 上，单位 m）。
 如果要做雷达到相机的精确标定，可以参考 livox_camera_calib / direct_visual_lidar_calibration。
+
+### 相机标定结果（2026-11-02）
+
+- 640×480 下 fx 689.7、fy 691.1、cx 324.4、cy 250.0；重投影误差 RMS 0.12 px，共 33 张图。
+- 视场角：水平约 50°，垂直约 38°。640×480 是从 16:9 传感器中间裁出来的，所以视场比较窄。
+- 畸变小：画面角落的偏移约 2%。
+- GPU 服务器已改用 `--intrinsic 689.7 691.1 324.4 250.0` 重启。
+- 注意：InternVLA-N1 训练时用的相机视场更宽。如果实测效果不好，可以试试 1280×720 模式，需要重新标定。
