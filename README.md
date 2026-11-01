@@ -65,6 +65,8 @@ ros2 topic pub --once /vln/instruction std_msgs/String "data: 'Go forward and st
 
 GPU 服务器端见 [docs/setup/gpu-server.md](docs/setup/gpu-server.md)。
 
+GPS 环湖循迹（滴水湖，凯悦嘉轩往返）见 [docs/navigation/dishui-lake-loop.md](docs/navigation/dishui-lake-loop.md)。
+
 ## 需要你填写的占位项
 
 - [x] `ros2_ws/src/vln_robot_bringup/config/MID360_config.json`：雷达 192.168.1.156，主机 192.168.1.101
@@ -76,8 +78,9 @@ GPU 服务器端见 [docs/setup/gpu-server.md](docs/setup/gpu-server.md)。
 ## 路线图
 
 1. ✅ 资料整理、仓库与环境脚本
-2. ⬜ 在 M11 上装机，逐个打通传感器（`scripts/onboard/check_hardware.sh`）
+2. ✅ 在 M11 上装机，逐个打通传感器（`scripts/onboard/check_hardware.sh`）
 3. ⬜ 相机标定 + 外参测量；S1 底盘遥控测试（`tools/s1_wheel_test.py`、teleop）
-4. ⬜ GPU 服务器部署 InternVLA-N1，先跑仿真评测（VLN-CE R2R）对齐论文指标
+4. 🔶 GPU 服务器部署 InternVLA-N1，先跑仿真评测（VLN-CE R2R）对齐论文指标
 5. ⬜ 真机闭环：`vln_client` ↔ 服务器，室内短指令测试
-6. ⬜ 可选：FAST-LIO2 里程计替代轮速计；StreamVLN / JanusVLN 对比实验
+6. 🔶 GPS 环湖循迹（vln_robot_nav，已完成仿真，待实地测试）
+7. ⬜ 可选：FAST-LIO2 里程计替代轮速计；StreamVLN / JanusVLN 对比实验

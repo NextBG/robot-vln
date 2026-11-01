@@ -1,0 +1,11 @@
+gps_waypoint_follower:
+  ros__parameters:
+    lookahead: 4.0          # m, keep >= 3 m with ~2.5 m GPS noise
+    max_w: 0.8
+    min_v: 0.15
+    align_v: 0.3            # straight-ahead speed until heading is estimated (~4 m)
+    start_radius: 25.0      # refuse to start farther than this from the route
+    max_xte: 12.0           # stop (FAULT) when farther than this from the route
+    fix_timeout: 2.5
+    max_fix_std: 6.0
+    goal_tol: 3.0

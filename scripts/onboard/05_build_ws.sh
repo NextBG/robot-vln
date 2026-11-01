@@ -6,9 +6,12 @@ source_ros
 
 cd "$WS"
 mkdir -p src
-vcs import src < robot.repos
-if [[ "${WITH_CAN:-0}" == "1" ]]; then
-  vcs import --recursive src < can.repos
+# SKIP_VCS=1 when sources were copied in manually (robot without reliable GitHub access).
+if [[ "${SKIP_VCS:-0}" != "1" ]]; then
+  vcs import src < robot.repos
+  if [[ "${WITH_CAN:-0}" == "1" ]]; then
+    vcs import --recursive src < can.repos
+  fi
 fi
 
 # livox_ros_driver2 ships package_ROS1.xml / package_ROS2.xml; its build.sh normally copies one.
@@ -17,10 +20,12 @@ if [[ -f "$LIVOX/package_ROS2.xml" ]]; then
   cp -f "$LIVOX/package_ROS2.xml" "$LIVOX/package.xml"
 fi
 
+[[ -f /etc/ros/rosdep/sources.list.d/20-default.list ]] || sudo rosdep init
+rosdep update || warn "rosdep update failed"
 rosdep install --from-paths src --ignore-src -r -y --rosdistro humble || warn "some rosdep keys unresolved"
 
 colcon build --symlink-install \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release -DROS_EDITION=ROS2 -DHUMBLE_ROS=humble
+  --cmake-args -DCMAKE_BUILD_TYPE=Release -DROS_EDITION=ROS2 -DDISTRO_ROS=humble
 
-append_once "source ${WS}/install/setup.bash" "$HOME/.bashrc"
-info "Workspace built. source ${WS}/install/setup.bash"
+append_once "source ${REPO_ROOT}/scripts/onboard/ros_env.sh" "$HOME/.bashrc"
+info "Workspace built. source ${REPO_ROOT}/scripts/onboard/ros_env.sh"

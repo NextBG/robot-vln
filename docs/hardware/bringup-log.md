@@ -27,3 +27,12 @@
 | `cam-lan.service`（设置 enp1s0 = 192.168.1.101） | **保留**，雷达要用这个网口 |
 
 恢复：`~/.camera-host-autostart-disabled/restore.sh`
+
+### ROS 2 软件栈打通（第二次）
+
+- `~/.local` 里有 camera-host 项目装的 numpy 2.2.6，会导致 robomaster / nmea 驱动崩溃。没有改 `~/.local`，而是新建了 `~/robot-vln/.pydeps`，放入 numpy 1.26.4、numpy-quaternion、transforms3d 0.4.2 和 robomaster SDK。`scripts/onboard/ros_env.sh` 设置 `PYTHONNOUSERSITE=1` 并把 `.pydeps` 加到 PYTHONPATH 前面。**ROS 相关操作一律先 `source ~/robot-vln/scripts/onboard/ros_env.sh`**（已写入 `~/.bashrc`）。直接用 python3 的另一个项目不受影响。
+- livox_ros_driver2 构建要用 `-DDISTRO_ROS=humble`，不是 `HUMBLE_ROS`。
+- 话题频率：`/odom` 20 Hz，`/imu` 20 Hz，`/livox/lidar` 10 Hz；`/fix` 在室内为 status -1。
+- 全链路测试：`/nav/cmd_vel` → `safety_stop` → `/cmd_vel` → S1，轮子能转、能停。架空时 `/odom` 的位移不可信，里程计比例要在地面上标定。
+- pytest 要加 `-p no:anyio`（`~/.local` 里的 anyio 插件不兼容）。
+- GPS 环湖循迹见 [../navigation/dishui-lake-loop.md](../navigation/dishui-lake-loop.md)。

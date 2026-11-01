@@ -27,4 +27,4 @@ fi
 # Bigger socket buffers help with 200k pts/s UDP streams.
 echo -e "net.core.rmem_max=26214400\nnet.core.rmem_default=26214400" | sudo tee /etc/sysctl.d/90-livox.conf >/dev/null
 sudo sysctl --system >/dev/null
-info "Host ${HOST_IP}/24 on ${IFACE}. Test: ping 192.168.1.1XX (your LiDAR)."
+info "Host ${HOST_IP}/24 on ${IFACE}. Test: ping ${LIDAR_IP:-192.168.1.156}."
