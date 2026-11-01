@@ -11,7 +11,7 @@
     image_width: 640
     image_height: 480
     camera_name: "vln_cam"
-    # Generate with: ros2 run camera_calibration cameracalibrator --size 8x6 --square 0.025 image:=/camera/image_raw
+    # Generate with: python3 tools/calibrate_camera.py --cols 9 --rows 6 --square 0.025 (usb_cam stopped)
     camera_info_url: "package://vln_robot_bringup/config/camera_info.yaml"
     brightness: -1
     contrast: -1

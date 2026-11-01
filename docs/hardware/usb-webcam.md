@@ -33,13 +33,21 @@ v4l2-ctl -d /dev/vln_cam -c focus_automatic_continuous=0 -c focus_absolute=0
 
 内参会同时用于（1）服务器端 `--intrinsic` 和（2）雷达投影深度。
 
+推荐使用 `tools/calibrate_camera.py`。它不依赖 ROS，可以通过 SSH 远程运行，自动采图并提示还缺哪些姿态：
+
 ```bash
-sudo apt install ros-humble-camera-calibration
-ros2 run camera_calibration cameracalibrator --size 8x6 --square 0.025 \
-  --ros-args -r image:=/camera/image_raw -r camera:=/camera
+pkill -f usb_cam   # 先停掉占用相机的进程
+# 用系统自带的 python3，不要先 source ros_env.sh
+python3 ~/robot-vln/tools/calibrate_camera.py --cols 9 --rows 6 --square 0.025
 ```
 
-标定完成后点击 SAVE，把 `/tmp/calibrationdata.tar.gz` 里的 `ost.yaml` 内容填进 `config/camera_info.yaml`。
+- `--cols` 和 `--rows` 填**内角点**数量：10×7 个格子的棋盘是 9×6 个内角点。`--square` 填格子边长，单位米。
+- 分辨率默认 640×480，必须和 `usb_cam.yaml` 一致，换分辨率要重新标定。
+- 实时画面会显示在 M11 屏幕上，也可以在浏览器打开 `http://<机器人IP>:8090/` 查看。
+- 采够 25 张且覆盖到各个位置、远近和倾斜角度后，脚本会自动计算，结果直接写入 `config/camera_info.yaml`，并打印服务器启动用的 `--intrinsic` 参数。
+- 原始采集图片保存在 `~/calib_<时间>/`，其中 `check_raw_vs_undistorted.jpg` 用来检查去畸变效果。
+
+也可以用 ROS 自带的 GUI 工具（需要显示器）：`ros2 run camera_calibration cameracalibrator --size 9x6 --square 0.025 --ros-args -r image:=/camera/image_raw -r camera:=/camera`。
 
 ## 4. 外参
 
