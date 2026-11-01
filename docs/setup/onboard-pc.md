@@ -14,7 +14,7 @@ chmod +x scripts/onboard/*.sh
 | 1 | `01_install_deps.sh` | usb_cam、nmea_navsat_driver、cv_bridge、PCL、CycloneDDS、RoboMaster SDK（jeguzzi fork） |
 | 2 | `02_install_livox_sdk2.sh` | 编译安装 Livox-SDK2 |
 | 3 | `03_udev.sh` | `/dev/wheeltec_gps`、`/dev/vln_cam` |
-| 4 | `04_network_mid360.sh` | 雷达网口静态 IP 192.168.1.50（需要 `LIDAR_IFACE=`） |
+| 4 | `04_network_mid360.sh` | 雷达网口静态 IP 192.168.1.101（需要 `LIDAR_IFACE=`） |
 | 5 | `05_build_ws.sh` | `vcs import` 第三方源码 + `colcon build`（`WITH_CAN=1` 同时拉取 CAN 方案） |
 | ✓ | `check_hardware.sh` | 硬件自检 |
 

@@ -67,7 +67,7 @@ GPU 服务器端见 [docs/setup/gpu-server.md](docs/setup/gpu-server.md)。
 
 ## 需要你填写的占位项
 
-- [ ] `ros2_ws/src/vln_robot_bringup/config/MID360_config.json`：雷达 IP `192.168.1.1XX`（XX = SN 末两位）
+- [x] `ros2_ws/src/vln_robot_bringup/config/MID360_config.json`：雷达 192.168.1.156，主机 192.168.1.101
 - [ ] `config/camera_info.yaml`：相机内参（用 `camera_calibration` 标定）
 - [ ] `config/extrinsics.yaml`：相机、雷达、GPS 相对 `base_link` 的安装位姿
 - [ ] `scripts/onboard/99-vln-robot.rules`：摄像头 VID/PID；G60 的 CH9102 序列号改为 `0005`

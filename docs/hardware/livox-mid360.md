@@ -22,8 +22,8 @@
 ## 3. 网络
 
 - 雷达出厂静态 IP：**192.168.1.1XX**，XX = 序列号**最后两位**。
-- 主机需要在同一网段：本仓库用 **192.168.1.50/24**（`scripts/onboard/04_network_mid360.sh`）。
-- `ros2_ws/src/vln_robot_bringup/config/MID360_config.json` 中的 `host_net_info.*_ip` = 192.168.1.50，`lidar_configs[0].ip` 要改成你的雷达 IP。
+- 主机需要在同一网段：本仓库用 **192.168.1.101/24**（M11 `enp1s0`，由已有的 `cam-lan` 连接配置）（`scripts/onboard/04_network_mid360.sh`）。
+- `ros2_ws/src/vln_robot_bringup/config/MID360_config.json` 中的 `host_net_info.*_ip` = 192.168.1.101，`lidar_configs[0].ip` = 192.168.1.156（本车雷达）。
 
 ## 4. 驱动
 

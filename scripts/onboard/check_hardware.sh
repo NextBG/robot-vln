@@ -9,7 +9,7 @@ check "Livox-SDK2 installed"              "ls /usr/local/lib/liblivox_lidar_sdk_
 check "GNSS /dev/wheeltec_gps"            "test -e /dev/wheeltec_gps"
 check "Webcam /dev/vln_cam"               "test -e /dev/vln_cam"
 check "S1 RNDIS link (192.168.42.2)"      "ping -c1 -W1 192.168.42.2"
-check "Mid-360 reachable (192.168.1.1XX)" "ip neigh | grep -q '192.168.1.1[0-9][0-9]' || ping -c1 -W1 -b 192.168.1.255"
+check "Mid-360 reachable (${LIDAR_IP:-192.168.1.156})" "ping -c1 -W1 ${LIDAR_IP:-192.168.1.156}"
 check "robomaster SDK importable"         "python3 -c 'import robomaster'"
 
 if [[ -e /dev/vln_cam ]]; then v4l2-ctl -d /dev/vln_cam --list-formats-ext | head -n 30; fi
