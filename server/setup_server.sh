@@ -23,6 +23,9 @@ fi
 if [[ "$CN_MIRROR" == "1" ]]; then
   export PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
   export HF_ENDPOINT=https://hf-mirror.com
+  # Domestic mirrors are much faster without the (cloud vendor's) overseas proxy.
+  export no_proxy="${no_proxy:-localhost,127.0.0.1},.aliyun.com,.tsinghua.edu.cn,.modelscope.cn,hf-mirror.com,.aliyuncs.com"
+  export NO_PROXY="$no_proxy"
 fi
 
 # 1. Python 3.10 env (conda if present, else install Miniconda)
@@ -67,18 +70,31 @@ fi
 # 4. flash-attn (required: the agent loads the model with attn_implementation=flash_attention_2)
 if ! python -c "import flash_attn" 2>/dev/null; then
   FA_WHL=flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
-  pip install "$GH/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/$FA_WHL" || \
+  # Slow GitHub? download the wheel elsewhere and pass FLASH_ATTN_WHL=/path/to/$FA_WHL
+  pip install "${FLASH_ATTN_WHL:-$GH/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/$FA_WHL}" || \
     MAX_JOBS=8 pip install flash-attn==2.7.4.post1 --no-build-isolation
 fi
 
 # 5. InternNav + InternVLA-N1 extras (+ server deps)
 sed -i 's#git+https://github.com#git+'"$GH"'#g' requirements/internvla_n1.txt
+# diffusion_policy is already a submodule; avoid a second (slow) clone from GitHub.
+if [[ -f third_party/diffusion-policy/setup.py ]]; then
+  sed -i "s#^diffusion_policy @ .*#diffusion_policy @ file://$ROOT/third_party/diffusion-policy#" requirements/internvla_n1.txt
+fi
+# Optional pre-fetched copy: DCF_DIR=/path/to/depth_camera_filtering
+if [[ -n "${DCF_DIR:-}" ]]; then
+  sed -i "s#^depth-camera-filtering @ .*#depth-camera-filtering @ file://$DCF_DIR#" requirements/internvla_n1.txt
+fi
 pip install -e ".[internvla_n1]"
-pip install flask "huggingface_hub[cli]" qwen-vl-utils
+pip install flask "huggingface_hub[cli]" qwen-vl-utils modelscope
 
-# 6. Checkpoint
+# 6. Checkpoint (ModelScope mirror in China, HuggingFace otherwise)
 mkdir -p checkpoints
-huggingface-cli download "InternRobotics/$MODEL" --local-dir "checkpoints/$MODEL"
+if [[ "$CN_MIRROR" == "1" ]]; then
+  modelscope download --model "InternRobotics/$MODEL" --local_dir "checkpoints/$MODEL"
+else
+  huggingface-cli download "InternRobotics/$MODEL" --local-dir "checkpoints/$MODEL"
+fi
 
 # 7. Our HTTP wrapper
 cp -f "$HERE/internvla_n1_server.py" "$ROOT/scripts/realworld/internvla_n1_server.py"
