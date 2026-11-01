@@ -3,7 +3,8 @@
     ros2 launch vln_robot_bringup robot.launch.py
     ros2 launch vln_robot_bringup robot.launch.py use_lidar:=false use_gnss:=false
 
-Starts: RoboMaster S1 chassis driver (robomaster_ros), USB webcam (usb_cam),
+Starts: RoboMaster S1 chassis driver (robomaster_ros), USB webcam (wide_cam_node, or usb_cam with
+camera_driver:=usb_cam),
 Livox Mid-360 (livox_ros_driver2), WHEELTEC G60 (nmea_navsat_driver) and the
 static TFs between base_link and the sensors.
 """
@@ -16,7 +17,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import AnyLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 PKG = 'vln_robot_bringup'
@@ -58,10 +59,17 @@ def generate_launch_description():
         }.items(),
         condition=IfCondition(use_chassis))
 
-    camera = Node(
+    # Default: full-sensor 4000x3000 grab downscaled to 640x480 (~66 deg HFOV, camera_info.yaml).
+    # camera_driver:=usb_cam uses the cropped 640x480 mode (~50 deg) with camera_info_640crop.yaml.
+    camera_driver = LaunchConfiguration('camera_driver')
+    camera_wide = Node(
+        package='vln_robot_bringup', executable='wide_cam_node', name='vln_cam', namespace='camera',
+        parameters=[os.path.join(cfg, 'wide_cam.yaml')],
+        condition=IfCondition(PythonExpression(["'", use_camera, "' == 'true' and '", camera_driver, "' == 'wide'"])))
+    camera_usb = Node(
         package='usb_cam', executable='usb_cam_node_exe', name='vln_cam', namespace='camera',
         parameters=[os.path.join(cfg, 'usb_cam.yaml')],
-        condition=IfCondition(use_camera))
+        condition=IfCondition(PythonExpression(["'", use_camera, "' == 'true' and '", camera_driver, "' == 'usb_cam'"])))
 
     lidar = Node(
         package='livox_ros_driver2', executable='livox_ros_driver2_node',
@@ -93,10 +101,12 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('use_chassis', default_value='true'),
         DeclareLaunchArgument('use_camera', default_value='true'),
+        DeclareLaunchArgument('camera_driver', default_value='wide',
+                              description='wide (full sensor, ~66 deg HFOV) or usb_cam (640x480 crop, ~50 deg)'),
         DeclareLaunchArgument('use_lidar', default_value='true'),
         DeclareLaunchArgument('use_gnss', default_value='true'),
         DeclareLaunchArgument('s1_conn_type', default_value='rndis',
                               description='rndis (USB cable to intelligent controller), ap or sta'),
         DeclareLaunchArgument('s1_serial_number', default_value=''),
-        chassis, camera, lidar, gnss, *tfs,
+        chassis, camera_wide, camera_usb, lidar, gnss, *tfs,
     ])

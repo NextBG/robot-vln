@@ -15,6 +15,7 @@ setup(
         ('share/' + package_name + '/config', glob('config/*')),
     ],
     install_requires=['setuptools'],
+    entry_points={'console_scripts': ['wide_cam_node = vln_robot_bringup.wide_cam_node:main']},
     zip_safe=True,
     maintainer='NextBG',
     maintainer_email='nextb@example.com',

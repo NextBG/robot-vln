@@ -1,0 +1,13 @@
+# wide_cam_node: full-sensor (widest FOV) capture for the 'USB 2.0 Camera 4K' (eba4:1303).
+# Smaller MJPG modes are centre crops (~50 deg HFOV); 4000x3000 is the whole sensor (~66 deg).
+/**:
+  ros__parameters:
+    video_device: "/dev/vln_cam"
+    capture_width: 4000
+    capture_height: 3000
+    image_width: 640              # must match camera_info.yaml
+    image_height: 480
+    framerate: 15.0
+    frame_id: "camera_optical_frame"
+    # camera_info_path defaults to <share>/config/camera_info.yaml
+    # Re-calibrate with: python3 tools/calibrate_camera.py --capture 4000x3000 (camera node stopped)

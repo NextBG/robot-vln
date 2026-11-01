@@ -1,17 +1,17 @@
-# Calibrated 2026-11-02 00:37 with tools/calibrate_camera.py
-# 33 views, reprojection RMS 0.119 px. VLN server: --intrinsic 689.7 691.1 324.4 250.0
+# Calibrated 2026-11-02 01:19 with tools/calibrate_camera.py --capture 4000x3000 (full sensor, HFOV 65.9 deg)
+# 36 views, reprojection RMS 0.098 px. VLN server: --intrinsic 493.4 494.0 325.3 241.0
 image_width: 640
 image_height: 480
 camera_name: vln_cam
 camera_matrix:
   rows: 3
   cols: 3
-  data: [689.717869, 0.000000, 324.372684, 0.000000, 691.079956, 249.980122, 0.000000, 0.000000, 1.000000]
+  data: [493.350233, 0.000000, 325.323665, 0.000000, 494.004014, 240.999604, 0.000000, 0.000000, 1.000000]
 distortion_model: plumb_bob
 distortion_coefficients:
   rows: 1
   cols: 5
-  data: [0.181547, -0.804437, -0.001427, -0.000872, 1.266423]
+  data: [0.130713, -0.415684, 0.000437, 0.001153, 0.361176]
 rectification_matrix:
   rows: 3
   cols: 3
@@ -19,4 +19,4 @@ rectification_matrix:
 projection_matrix:
   rows: 3
   cols: 4
-  data: [702.846044, 0.000000, 323.814355, 0.000000, 0.000000, 704.018853, 249.297344, 0.000000, 0.000000, 0.000000, 1.000000, 0.000000]
+  data: [497.727994, 0.000000, 326.043719, 0.000000, 0.000000, 500.258790, 241.159984, 0.000000, 0.000000, 0.000000, 1.000000, 0.000000]

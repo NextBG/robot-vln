@@ -70,10 +70,10 @@ GPS 环湖循迹（滴水湖，凯悦嘉轩往返）见 [docs/navigation/dishui-
 ## 需要你填写的占位项
 
 - [x] `ros2_ws/src/vln_robot_bringup/config/MID360_config.json`：雷达 192.168.1.156，主机 192.168.1.101
-- [x] `config/camera_info.yaml`：已标定（2026-11-02，fx 689.7 fy 691.1 cx 324.4 cy 250.0，RMS 0.12 px）
+- [x] `config/camera_info.yaml`：已标定全传感器广角（2026-11-02，640×480 输出，fx 493.4 fy 494.0 cx 325.3 cy 241.0，HFOV 66°，RMS 0.10 px）
 - [ ] `config/extrinsics.yaml`：相机、雷达、GPS 相对 `base_link` 的安装位姿
 - [ ] `scripts/onboard/99-vln-robot.rules`：摄像头 VID/PID；G60 的 CH9102 序列号改为 `0005`
-- [x] GPU 服务器 `--intrinsic 689.7 691.1 324.4 250.0`
+- [x] GPU 服务器 `--intrinsic 493.4 494.0 325.3 241.0`
 
 ## 路线图
 

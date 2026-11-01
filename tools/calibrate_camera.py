@@ -165,6 +165,36 @@ def calibrate(objp, img_pts, size):
     return rms, K, D, np.array(errs)
 
 
+class FullSensorCapture:
+    """Grab raw MJPG at a large mode and decode at 1/2-1/8 scale (libjpeg DCT scaling), then resize.
+
+    On the 'USB 2.0 Camera 4K' only 4000x3000 uses the whole sensor; every smaller mode is a centre crop.
+    """
+
+    def __init__(self, cap, width, height):
+        cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.cap, self.size = cap, (width, height)
+        cw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        r = max(1, cw // width)
+        self.flag = {1: cv2.IMREAD_COLOR}.get(r, cv2.IMREAD_REDUCED_COLOR_2 if r < 4 else
+                                              cv2.IMREAD_REDUCED_COLOR_4 if r < 8 else cv2.IMREAD_REDUCED_COLOR_8)
+
+    def read(self):
+        ok, buf = self.cap.read()
+        if not ok or buf is None:
+            return False, None
+        im = cv2.imdecode(buf.reshape(-1), self.flag)
+        if im is None:
+            return False, None
+        if (im.shape[1], im.shape[0]) != self.size:
+            im = cv2.resize(im, self.size, interpolation=cv2.INTER_AREA)
+        return True, im
+
+    def release(self):
+        self.cap.release()
+
+
 def detect_pattern(cap, preview, show):
     """Find the inner-corner count by trying common sizes (largest first) on live frames."""
     sizes = sorted([(c, r) for c in range(4, 14) for r in range(3, 11) if c >= r], key=lambda s: -s[0] * s[1])
@@ -196,6 +226,8 @@ def main():
     ap.add_argument('--device', default='/dev/vln_cam')
     ap.add_argument('--width', type=int, default=640)
     ap.add_argument('--height', type=int, default=480)
+    ap.add_argument('--capture', default='',
+                    help='grab MJPG at this mode (e.g. 4000x3000 = full sensor, widest FOV) and scale to --width/--height')
     ap.add_argument('--cols', type=int, default=0, help='inner corners per row (0 = auto-detect)')
     ap.add_argument('--rows', type=int, default=0, help='inner corners per column (0 = auto-detect)')
     ap.add_argument('--square', type=float, default=0.025,
@@ -210,8 +242,14 @@ def main():
 
     cap = cv2.VideoCapture(a.device, cv2.CAP_V4L2)
     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, a.width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, a.height)
+    if a.capture:
+        cw, ch = map(int, a.capture.lower().split('x'))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, cw)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, ch)
+        cap = FullSensorCapture(cap, a.width, a.height)
+    else:
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, a.width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, a.height)
     ok, frame = cap.read()
     if not ok:
         sys.exit(f'cannot read {a.device} (is usb_cam still running?)')
