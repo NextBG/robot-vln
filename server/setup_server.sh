@@ -16,6 +16,9 @@ GH="${GH_PROXY:-}https://github.com"
 log() { echo -e "\033[1;32m[setup]\033[0m $*"; }
 
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv || { echo "No NVIDIA GPU"; exit 1; }
+if ! command -v git >/dev/null || ! command -v wget >/dev/null; then
+  apt-get update && apt-get install -y git wget || sudo apt-get install -y git wget
+fi
 
 if [[ "$CN_MIRROR" == "1" ]]; then
   export PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
@@ -52,11 +55,14 @@ cd "$ROOT"
 git submodule update --init --recursive || log "submodule update failed (LongCLIP is not needed for InternVLA-N1)"
 
 # 3. PyTorch 2.6 + CUDA 12.4 (matches flash-attn 2.7.4.post1 prebuilt wheel)
-TORCH_INDEX=https://download.pytorch.org/whl/cu124
-[[ "$CN_MIRROR" == "1" ]] && TORCH_INDEX=https://mirrors.aliyun.com/pytorch-wheels/cu124
-python -c "import torch,sys; sys.exit(0 if torch.__version__.startswith('2.6') else 1)" 2>/dev/null || \
-  pip install torch==2.6.0 torchvision==0.21.0 --index-url "$TORCH_INDEX" || \
-  pip install torch==2.6.0 torchvision==0.21.0 -f "$TORCH_INDEX"
+TORCH_PKGS=(torch==2.6.0 torchvision==0.21.0)
+if ! python -c "import torch,sys; sys.exit(0 if torch.__version__.startswith('2.6') else 1)" 2>/dev/null; then
+  if [[ "$CN_MIRROR" == "1" ]]; then
+    pip install "${TORCH_PKGS[@]}" -f https://mirrors.aliyun.com/pytorch-wheels/cu124/
+  else
+    pip install "${TORCH_PKGS[@]}" --index-url https://download.pytorch.org/whl/cu124
+  fi
+fi
 
 # 4. flash-attn (required: the agent loads the model with attn_implementation=flash_attention_2)
 if ! python -c "import flash_attn" 2>/dev/null; then
