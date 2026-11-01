@@ -11,4 +11,4 @@ KERNEL=="ttyUSB*",       ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTR
 # (or `udevadm info -a -n /dev/video0`). ATTR{index}=="0" picks the capture node, not the metadata node.
 # Installed unit: "USB 2.0 Camera 4K" eba4:1303 (MJPG up to 4000x3000, 1280x720@30).
 SUBSYSTEM=="video4linux", ATTRS{idVendor}=="eba4", ATTRS{idProduct}=="1303", ATTR{index}=="0", MODE:="0666", SYMLINK+="vln_cam", \
-  RUN+="/usr/bin/v4l2-ctl -d $devnode -c auto_exposure=3"
+  RUN+="/usr/bin/v4l2-ctl -d $devnode -c auto_exposure=3 -c saturation=4 -c white_balance_automatic=1"
