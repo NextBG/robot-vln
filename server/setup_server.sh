@@ -87,6 +87,9 @@ if [[ -n "${DCF_DIR:-}" ]]; then
 fi
 pip install -e ".[internvla_n1]"
 pip install flask "huggingface_hub[cli]" qwen-vl-utils modelscope
+# Runtime fixes found on first launch (2026-11): dialog_agent imports `quaternion`;
+# diffusers 0.33 breaks LuminaNextDiT gradient checkpointing; LongCLIP needs pkg_resources.
+pip install numpy-quaternion "diffusers==0.32.2" "setuptools<70"
 
 # 6. Checkpoint (ModelScope mirror in China, HuggingFace otherwise)
 mkdir -p checkpoints
@@ -94,6 +97,13 @@ if [[ "$CN_MIRROR" == "1" ]]; then
   modelscope download --model "InternRobotics/$MODEL" --local_dir "checkpoints/$MODEL"
 else
   huggingface-cli download "InternRobotics/$MODEL" --local-dir "checkpoints/$MODEL"
+fi
+# Depth-Anything-V2 metric (System-1 depth), loaded from checkpoints/ by internvla_n1_arch.py
+DA=depth_anything_v2_metric_hypersim_vits.pth
+if [[ ! -f "checkpoints/$DA" ]]; then
+  HF_BASE=$([[ "$CN_MIRROR" == "1" ]] && echo https://hf-mirror.com || echo https://huggingface.co)
+  curl -fL --retry 3 -o "checkpoints/$DA.tmp" "$HF_BASE/depth-anything/Depth-Anything-V2-Metric-Hypersim-Small/resolve/main/$DA"
+  mv "checkpoints/$DA.tmp" "checkpoints/$DA"
 fi
 
 # 7. Our HTTP wrapper

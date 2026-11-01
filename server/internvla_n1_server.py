@@ -42,6 +42,7 @@ def load_agent(args):
     from internnav.agent.internvla_n1_agent_realworld import InternVLAN1AsyncAgent  # noqa: E402
 
     agent = InternVLAN1AsyncAgent(args)
+    agent.reset()  # upstream __init__ sets save_dir but only reset() creates it
     h, w = args.height, args.width
     agent.step(np.zeros((h, w, 3), np.uint8), np.zeros((h, w), np.float32), np.eye(4),
                "warm up", intrinsic=STATE["intrinsic"])

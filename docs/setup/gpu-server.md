@@ -38,6 +38,17 @@ ssh -N -L 5801:127.0.0.1:5801 -p <端口> root@<服务器地址>
 
 `--intrinsic` 填 `camera_info.yaml` 里标定得到的内参。
 
+### 实测（2026-11-01，compshare RTX 4090）
+
+- 显存占用约 16.6 GB；单步推理约 0.26–0.33 s（640×480 图像，`test_client.py` 测试返回 HTTP 200）。
+- 首次启动时修了以下问题，已写进 `setup_server.sh`：
+  - 缺少 `numpy-quaternion`
+  - diffusers 0.33.1 的 LuminaNextDiT 不兼容，降到 0.32.2
+  - LongCLIP 需要 `pkg_resources`，要求 `setuptools<70`
+  - 缺少 `checkpoints/depth_anything_v2_metric_hypersim_vits.pth`
+- 服务器在后台运行：`nohup python scripts/realworld/internvla_n1_server.py ... > /root/server.log 2>&1 &`
+- 不用的时候在控制台关机，避免按时计费。
+
 ## 和官方 server 的区别（`server/internvla_n1_server.py`）
 
 - 指令从请求 json 的 `instruction` 字段读取（官方脚本里是写死的）
