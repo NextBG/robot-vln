@@ -55,6 +55,8 @@ ssh -N -L 5801:127.0.0.1:5801 -p <端口> root@<服务器地址>
 - 内参由命令行传入
 - `depth` 可选（没有就用全 0）
 - 增加 `/health` 接口
+- **深度补全**（`--depth_fill mono`，默认开启；`--depth_fill none` 关闭）：Mid-360 投影到图像上只覆盖约 3% 的像素，所以用 Depth-Anything-V2 metric（vits，`--mono_depth_ckpt`）算单目深度，按 LiDAR 像素取中值比例对齐尺度，再填补空洞。没有 LiDAR 数据时直接用单目深度（scale=1）。约 28 ms/帧；响应里的 `depth` 字段返回 `lidar_frac`、`mono_scale`、`fill_s`。
+- 推理放在 `torch.no_grad()` 中执行：官方 `step_s1`（轨迹扩散）没有关梯度，24 GB 显卡跑到第 4 步左右就会 OOM。修复后连续 20 步显存稳定在约 18.5 GB；S2 单步约 0.2–0.5 s，S2 生成像素目标的那一步约 1.3 s。
 
 ## 可选：仿真评测（复现论文指标）
 
