@@ -10,7 +10,9 @@
 
 ```bash
 git clone https://github.com/NextBG/robot-vln.git && cd robot-vln
-HF_ENDPOINT=https://hf-mirror.com bash server/setup_server.sh     # 国内使用 hf-mirror
+bash server/setup_server.sh          # 默认 CN_MIRROR=1：清华 PyPI + 阿里 PyTorch + hf-mirror
+# GitHub 访问不了时加代理前缀：GH_PROXY=https://<代理>/ bash server/setup_server.sh
+# 选择其他权重：MODEL=InternVLA-N1-w-NavDP bash server/setup_server.sh
 ```
 
 脚本会：clone InternNav → 创建 conda 环境 `internnav` → 安装依赖 → 下载 `InternRobotics/InternVLA-N1-DualVLN` 权重 → 复制本仓库的服务端封装。
@@ -24,6 +26,14 @@ python scripts/realworld/internvla_n1_server.py \
   --model_path checkpoints/InternVLA-N1-DualVLN \
   --intrinsic <fx> <fy> <cx> <cy> --port 5801
 curl http://localhost:5801/health
+python ~/robot-vln/server/test_client.py --instruction "Walk to the door and stop."   # 冒烟测试
+```
+
+云 GPU（优云智算 compshare / AutoDL 等）一般只开放 SSH 端口，可以用 SSH 隧道把服务暴露给机器人：
+
+```bash
+# 在 M11 上执行，之后 vln_client 的 server_url 用 http://127.0.0.1:5801/eval_dual
+ssh -N -L 5801:127.0.0.1:5801 -p <端口> root@<服务器地址>
 ```
 
 `--intrinsic` 填 `camera_info.yaml` 里标定得到的内参。
