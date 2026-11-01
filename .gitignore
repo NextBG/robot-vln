@@ -1,0 +1,19 @@
+# colcon
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+# sources fetched by vcs (robot.repos / can.repos)
+ros2_ws/src/third_party/robomaster_ros/
+ros2_ws/src/third_party/livox_ros_driver2/
+ros2_ws/src/third_party/robomaster_ros2_can/
+
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.vscode/
+.idea/
+*.bag
+*.db3
+*.mcap
+checkpoints/

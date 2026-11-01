@@ -1,0 +1,6 @@
+# Sensor mounting poses relative to base_link (x forward, y left, z up), meters / radians.
+# MEASURE THESE ON THE REAL ROBOT. Values below are placeholders for an S1 with a
+# sensor plate on top of the gimbal mount.
+camera_link:      {x: 0.12, y: 0.0, z: 0.30, roll: 0.0, pitch: 0.0, yaw: 0.0}
+livox_frame:      {x: 0.00, y: 0.0, z: 0.38, roll: 0.0, pitch: 0.0, yaw: 0.0}
+gps_link:         {x: -0.10, y: 0.0, z: 0.35, roll: 0.0, pitch: 0.0, yaw: 0.0}

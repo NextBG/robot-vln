@@ -1,0 +1,23 @@
+# usb_cam (ros-humble-usb-cam) parameters for a generic UVC webcam.
+# Check supported modes on the robot with:  v4l2-ctl -d /dev/video0 --list-formats-ext
+/**:
+  ros__parameters:
+    video_device: "/dev/vln_cam"      # udev symlink, see scripts/onboard/99-vln-robot.rules
+    framerate: 15.0
+    io_method: "mmap"
+    frame_id: "camera_optical_frame"
+    pixel_format: "mjpeg2rgb"          # MJPEG keeps USB bandwidth low; decoded to rgb8
+    av_device_format: "YUV422P"
+    image_width: 640
+    image_height: 480
+    camera_name: "vln_cam"
+    # Generate with: ros2 run camera_calibration cameracalibrator --size 8x6 --square 0.025 image:=/camera/image_raw
+    camera_info_url: "package://vln_robot_bringup/config/camera_info.yaml"
+    brightness: -1
+    contrast: -1
+    saturation: -1
+    sharpness: -1
+    gain: -1
+    auto_white_balance: true
+    autoexposure: true
+    autofocus: false

@@ -1,0 +1,11 @@
+# Third-party ROS 2 source packages for the onboard PC.
+#   cd ros2_ws && vcs import src < robot.repos
+repositories:
+  third_party/robomaster_ros:
+    type: git
+    url: https://github.com/jeguzzi/robomaster_ros.git
+    version: master
+  third_party/livox_ros_driver2:
+    type: git
+    url: https://github.com/Livox-SDK/livox_ros_driver2.git
+    version: master

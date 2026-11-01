@@ -1,0 +1,9 @@
+* text=auto
+*.sh    text eol=lf
+*.py    text eol=lf
+*.rules text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.repos text eol=lf
+*.pdf binary
+*.stp binary

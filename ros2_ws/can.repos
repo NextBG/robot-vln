@@ -1,0 +1,8 @@
+# Optional: low-level S1 control over the internal CAN bus (bypasses the intelligent controller SDK).
+# Needs a USB-CAN adapter (SocketCAN, e.g. CANable / candleLight gs_usb) wired to the S1 CAN bus.
+#   cd ros2_ws && vcs import src < can.repos
+repositories:
+  third_party/robomaster_ros2_can:
+    type: git
+    url: https://github.com/proroklab/robomaster_ros2_can.git
+    version: main
