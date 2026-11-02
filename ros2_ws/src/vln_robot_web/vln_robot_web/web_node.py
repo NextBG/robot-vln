@@ -422,7 +422,7 @@ class WebNode(Node):
                 task['start'] = [self.fix['lat'], self.fix['lon']]
             walker = lambda a, b: amap.walking(a, b, key)  # noqa: E731
         res = build_task(task, base, walker)
-        radius = max(1.0, min(10.0, float(req.get('radius', self.wp_radius))))
+        radius = max(1.0, min(30.0, float(req.get('radius', self.wp_radius))))
         max_v = max(0.1, min(self.max_v, float(req.get('max_v', self.max_v))))
         clean = dict(task, base=req.get('base') if mode == 'route' else None, radius=radius, max_v=max_v,
                      spacing=task['max_spacing'])
