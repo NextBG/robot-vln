@@ -12,3 +12,4 @@ gps_waypoint_follower:
     wp_radius: 3.0          # m, waypoint reached inside this radius (drawn on the dashboard map)
     wp_simplify_tol: 1.0    # m, Douglas-Peucker tolerance: dense route -> corner waypoints
     wp_max_spacing: 25.0    # m, split long straight legs
+    closed: auto            # auto (first ~ last point -> loop) / true / false (open route: stop at the end)

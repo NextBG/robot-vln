@@ -52,6 +52,17 @@ bash scripts/onboard/install_web_service.sh
 - **VLN 任务**
   - 输入指令后发送，发送前需要二次确认。如果 `vln_client` 还没启动，会自动启动。
   - 面板显示任务状态（空闲 / 等待图像 / 请求中 / 执行中 / 完成 / 错误）、步数、模型回复和请求往返耗时。
+- **GPS 导航任务**（不再写死起终点）
+  - **方式**：
+    - 沿已有路线：从 `vln_robot_nav/share/routes/*.csv` 或 `~/.ros/vln_robot_web/routes/*.csv` 中选路线，起点/终点吸附到路线上，可选“反向”。来回重叠的路段（如滴水湖的出发连接段）会选最短的那一段。
+    - 手动点选：起点 → 途经点… → 终点，相邻点之间走直线。
+    - 高德步行规划：起点（默认当前位置）到终点，调用高德 Web 服务步行接口。Key 放在机器人的 `~/.config/vln_robot_web/amap_key`（或环境变量 `AMAP_KEY`），**不要提交到仓库**。
+  - 可选“闭环”（回到起点）、到点判定半径（1–10 m）、速度（不超过 `max_v`）、最大点间距。
+  - 点“选起点 / 选终点 / 加途经点”，再在地图上点击选点（自动把 GCJ-02 坐标转回 WGS-84）。
+  - **预览**：橙色折线 + 编号路径点 + 半透明的判定半径圆，同时显示总长、点数和预计用时。
+  - **启动 / 暂停 / 继续 / 结束任务**：启动前需要确认。任务保存在 `~/.ros/vln_robot_web/nav_task.{json,csv}`，进度保存在 `nav_progress.json`，网页重启或换电池后点“继续”会从上次的进度接着走。
+  - `gps_waypoint_follower` 作为 `nav` 模块由网页托管：启动时总是暂停状态，就绪后网页再调用 `/nav/start`；崩溃后自动重启，但也只恢复到暂停状态，不会自己动起来。
+  - 遥控、发送 VLN 指令或急停都会自动暂停导航。到达终点（DONE）或故障（FAULT）后停车。
 
 ## HTTP API
 
@@ -60,11 +71,17 @@ bash scripts/onboard/install_web_service.sh
 | GET | `/api/state` | 当前状态 JSON |
 | GET | `/api/events` | SSE 状态流 |
 | GET | `/api/track` | 已走过的 GPS 轨迹 |
-| GET | `/api/route` | `{radius, source: nav\|file, points: [[lat, lon], …]}` |
+| GET | `/api/route` | `{radius, source: nav\|task\|file, closed, points: [[lat, lon], …]}` |
+| GET | `/api/nav/routes` | 可选基础路线、高德是否可用、已保存任务 |
+| GET | `/api/nav/base?name=` | 基础路线（简化后的路径点） |
+| POST | `/api/nav/preview` | `{"task": {mode, base, start, end, points, reverse, loop, radius, max_v, spacing}}` → 路径点、长度、预计用时 |
+| POST | `/api/nav/start` | 带 `task` 为新任务（从头开始），不带为继续 |
+| POST | `/api/nav/pause` | 暂停导航 |
+| POST | `/api/nav/cancel` | 结束任务（停止导航节点） |
 | POST | `/api/cmd` | 遥控速度 `{"vx","vy","wz"}` |
 | POST | `/api/stop` | 立即停车 |
 | POST | `/api/estop` | `{"on": true\|false}` |
-| POST | `/api/module` | `{"name": chassis\|camera\|lidar\|gnss\|tf\|vln\|tunnel\|all, "action": restart\|start\|stop}` |
+| POST | `/api/module` | `{"name": chassis\|camera\|lidar\|gnss\|tf\|vln\|tunnel\|nav\|all, "action": restart\|start\|stop}` |
 | POST | `/api/vln` | `{"instruction": "..."}` |
 | POST | `/api/vln/stop` | 停止 VLN 任务 |
 

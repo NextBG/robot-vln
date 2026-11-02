@@ -132,3 +132,70 @@ def test_next_waypoint():
     f.pos, f.s = np.array([0.0, 2.0]), 238.0       # almost done -> route end (= vertex 0)
     k, xy, _ = f.next_waypoint()
     assert k == 0 and np.allclose(xy, (0.0, 0.0))
+
+
+def l_shape():
+    enu = LocalENU(30.9, 121.9)
+    return enu, [enu.to_lla(e, n) for e, n in [(0, 0), (60, 0), (60, 60)]]
+
+
+def test_open_route_completes():
+    _, pts = l_shape()
+    r = LoopRoute(pts, closed=None)
+    assert not r.closed and abs(r.length - 120.0) < 0.01 and r.n_wp == 3
+    assert np.allclose(r.point_at(500.0), (60.0, 60.0)) and np.allclose(r.point_at(-5.0), (0.0, 0.0))
+    s, _ = r.project((10.0, 0.5), s_hint=118.0, back=200, fwd=10)
+    assert abs(s - 10.0) < 1e-6                     # no wrap on an open route
+    f, worst, end = simulate(r, gps_std=1.0)
+    assert f.state == DONE, f.reason
+    assert worst < 4.0
+    assert np.hypot(*(np.array(end) - (60.0, 60.0))) < 6.0
+    f.pos, f.s = np.array([60.0, 58.0]), 118.0
+    k, xy, _ = f.next_waypoint()
+    assert k == 2 and np.allclose(xy, (60.0, 60.0))
+
+
+def test_task_route_part_and_manual():
+    from vln_robot_nav.task import build_task
+    sq = dense_square(60.0)
+    enu = LocalENU(*sq[0])
+    ll = lambda e, n: list(enu.to_lla(e, n))   # noqa: E731
+    # start on the bottom side, end on the right side: open part 10 -> 60 -> (60, 30)
+    t = build_task({'mode': 'route', 'start': ll(10, 1), 'end': ll(59, 30)}, sq)
+    assert not t['closed'] and abs(t['length_m'] - 80.0) < 0.5
+    # reversed: 10 -> 0 -> (0, 60) -> (60, 60) -> (60, 30)
+    t = build_task({'mode': 'route', 'start': ll(10, 1), 'end': ll(59, 30), 'reverse': True}, sq)
+    assert abs(t['length_m'] - 160.0) < 0.5
+    # end before start (going round the loop) wraps on a closed base route
+    t = build_task({'mode': 'route', 'start': ll(59, 30), 'end': ll(10, 1)}, sq)
+    assert abs(t['length_m'] - 160.0) < 0.5
+    # no end -> full loop from the start point
+    t = build_task({'mode': 'route', 'start': ll(10, 1), 'radius': 2}, sq)
+    assert t['closed'] and abs(t['length_m'] - 240.0) < 0.5
+    t = build_task({'mode': 'manual', 'start': ll(0, 0), 'points': [ll(30, 0)], 'end': ll(30, 40), 'loop': True})
+    assert t['closed'] and abs(t['length_m'] - 120.0) < 0.5
+    with pytest.raises(ValueError):
+        build_task({'mode': 'manual', 'start': ll(0, 0)})
+    # open base route: end before start is an error unless reversed
+    _, lp = l_shape()
+    enu2 = LocalENU(*lp[0])
+    with pytest.raises(ValueError):
+        build_task({'mode': 'route', 'start': list(enu2.to_lla(50, 0)), 'end': list(enu2.to_lla(10, 0))}, lp)
+    t = build_task({'mode': 'route', 'start': list(enu2.to_lla(50, 0)), 'end': list(enu2.to_lla(10, 0)),
+                    'reverse': True}, lp)
+    assert abs(t['length_m'] - 40.0) < 0.5
+    walker = lambda a, b: [a, b]   # noqa: E731
+    t = build_task({'mode': 'amap', 'start': ll(0, 0), 'end': ll(0, 50), 'loop': True}, walker=walker)
+    assert t['closed'] and abs(t['length_m'] - 100.0) < 0.5
+
+def test_task_route_part_out_and_back_stem():
+    from vln_robot_nav.task import build_task
+    enu = LocalENU(30.9, 121.9)
+    xy = [(0, 0), (0, 50), (50, 50), (50, 100), (0, 100), (0, 50), (0, 0)]   # stem out, loop, stem back
+    base = [enu.to_lla(e, n) for e, n in xy]
+    ll = lambda e, n: list(enu.to_lla(e, n))   # noqa: E731
+    # both points lie on the stem twice: take the short way (return leg), not round the whole loop
+    t = build_task({'mode': 'route', 'start': ll(0, 40), 'end': ll(0, 10)}, base)
+    assert not t['closed'] and abs(t['length_m'] - 30.0) < 0.5
+    t = build_task({'mode': 'route', 'start': ll(0, 10), 'end': ll(0, 40)}, base)
+    assert abs(t['length_m'] - 30.0) < 0.5

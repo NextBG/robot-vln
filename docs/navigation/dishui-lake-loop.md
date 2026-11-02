@@ -60,7 +60,9 @@ ros2 topic echo /nav/status
    ros2 launch vln_robot_nav gps_loop.launch.py resume:=true
    ```
 
-   然后再调用一次 `/nav/start`。进度保存在 `~/.ros/gps_route_progress.json`。
+   然后再调用一次 `/nav/start`。进度保存在 `~/.ros/gps_route_progress.json`。只有路线文件内容没变（`route_id` 相同）时才会续上进度。
+
+> 更方便的做法是用网页的“GPS 导航任务”卡片：在地图上选起点和终点（沿路线、手动点选或高德步行规划），预览后启动，可以暂停和继续，见 [docs/web/dashboard.md](../web/dashboard.md)。`gps_waypoint_follower` 现在也支持开放路线（参数 `closed:=false`），走到终点后停车。
 
 ## 注意事项
 

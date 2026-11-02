@@ -77,33 +77,59 @@ def simplify_waypoints(latlon, tol=1.0, max_spacing=25.0):
 
 
 class LoopRoute:
-    """Closed polyline in ENU with arc-length parametrisation (s wraps modulo `length`)."""
+    """Polyline in ENU with arc-length parametrisation.
 
-    def __init__(self, latlon, close_tol=30.0):
+    closed=True: loop, s wraps modulo `length` (first/last point must be within `close_tol`).
+    closed=False: open route from the first to the last point, s is clamped to [0, length].
+    closed=None: closed if first/last point are within `close_tol`.
+    """
+
+    def __init__(self, latlon, close_tol=30.0, closed=True):
         self.enu = LocalENU(*latlon[0])
         p = np.array([self.enu.to_enu(la, lo) for la, lo in latlon], dtype=float)
-        if np.hypot(*(p[-1] - p[0])) > close_tol:
-            raise ValueError('route is not a closed loop (first/last point %.0f m apart)'
-                             % np.hypot(*(p[-1] - p[0])))
-        if np.hypot(*(p[-1] - p[0])) > 1e-6:
+        gap = float(np.hypot(*(p[-1] - p[0])))
+        if closed is None:
+            closed = gap <= close_tol
+        if closed and gap > close_tol:
+            raise ValueError('route is not a closed loop (first/last point %.0f m apart)' % gap)
+        if closed and gap > 1e-6:
             p = np.vstack([p, p[:1]])
         keep = np.r_[True, np.hypot(*np.diff(p, axis=0).T) > 1e-3]
+        self.closed = bool(closed)
         self.p = p[keep]
+        if len(self.p) < 2:
+            raise ValueError('route has < 2 distinct points')
         self.a = self.p[:-1]
         self.d = np.diff(self.p, axis=0)
         self.seg_len = np.hypot(self.d[:, 0], self.d[:, 1])
         self.s0 = np.r_[0.0, np.cumsum(self.seg_len)[:-1]]
         self.length = float(self.seg_len.sum())
+        # number of distinct waypoints (a loop repeats its first point at the end)
+        self.n_wp = len(self.p) - 1 if self.closed else len(self.p)
+
+    def wrap(self, s):
+        return s % self.length if self.closed else min(max(s, 0.0), self.length)
+
+    def _seg(self, s):
+        return int(np.clip(np.searchsorted(self.s0, s, side='right') - 1, 0, len(self.s0) - 1))
 
     def point_at(self, s):
-        s = s % self.length
-        i = int(np.searchsorted(self.s0, s, side='right') - 1)
+        s = self.wrap(s)
+        i = self._seg(s)
         t = (s - self.s0[i]) / self.seg_len[i]
         return self.a[i] + t * self.d[i]
 
     def tangent_at(self, s):
-        i = int(np.searchsorted(self.s0, s % self.length, side='right') - 1)
+        i = self._seg(self.wrap(s))
         return math.atan2(self.d[i, 1], self.d[i, 0])
+
+    def candidates(self, xy):
+        """Closest point on every segment: (arc length s, distance) arrays."""
+        q = np.asarray(xy, dtype=float)
+        w = q - self.a
+        t = np.clip((w * self.d).sum(1) / self.seg_len ** 2, 0.0, 1.0)
+        foot = self.a + t[:, None] * self.d
+        return self.s0 + t * self.seg_len, np.hypot(*(q - foot).T)
 
     def project(self, xy, s_hint=None, back=15.0, fwd=40.0):
         """Closest point on the route.
@@ -120,7 +146,8 @@ class LoopRoute:
         dist = np.hypot(*(q - foot).T)
         s = self.s0 + t * self.seg_len
         if s_hint is not None:
-            delta = (s - s_hint + self.length / 2) % self.length - self.length / 2
+            delta = ((s - s_hint + self.length / 2) % self.length - self.length / 2
+                     if self.closed else s - s_hint)
             mask = (delta >= -back) & (delta <= fwd)
             if not mask.any():
                 return None, None

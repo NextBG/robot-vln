@@ -7,8 +7,13 @@
 
 Never moves on its own: call  ros2 service call /nav/start std_srvs/srv/Trigger
 Pause:                         ros2 service call /nav/stop  std_srvs/srv/Trigger
-Progress is saved to `progress_file`; restart with resume:=true after a battery swap.
+Progress is saved to `progress_file`; restart with resume:=true after a battery swap
+(only applied when the route file content is unchanged).
+Velocity commands are published only while navigating (plus one zero on pause/stop), so other
+command sources (web teleop, VLN) can share the same topic.
+`closed`: auto (loop when first/last point are < 30 m apart) | true | false (open route start -> end).
 """
+import hashlib
 import json
 import math
 import os
@@ -17,6 +22,7 @@ import time
 import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
+from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import NavSatFix, NavSatStatus
@@ -43,18 +49,25 @@ class GpsWaypointFollower(Node):
         for k in [k for k in dir(FollowerParams) if not k.startswith('_')]:
             setattr(params, k, float(p(k, float(getattr(FollowerParams, k))).value))
 
+        # dynamic: `-p closed:=true` arrives as a bool, `auto` as a string
+        closed = p('closed', 'auto', ParameterDescriptor(dynamic_typing=True)).value
+        closed = {'auto': None, 'true': True, 'false': False}[str(closed).lower()]
+        self.task_name = str(p('task_name', '', ParameterDescriptor(dynamic_typing=True)).value)
+        with open(self.route_file, 'rb') as fh:
+            self.route_id = hashlib.sha1(fh.read()).hexdigest()[:12]
         route = LoopRoute(simplify_waypoints(load_route_csv(self.route_file),
                                              p('wp_simplify_tol', 1.0).value,
-                                             p('wp_max_spacing', 25.0).value))
+                                             p('wp_max_spacing', 25.0).value), closed=closed)
         start_progress = None
         if resume and os.path.exists(self.progress_file):
             with open(self.progress_file) as f:
                 saved = json.load(f)
-            if saved.get('route_file') == self.route_file:
+            if saved.get('route_id') == self.route_id and saved.get('state') != DONE:
                 start_progress = float(saved['progress'])
         self.f = RouteFollower(route, params, start_progress)
         self.get_logger().info(
-            f'route {self.route_file}: {route.length:.0f} m, {len(route.p)} pts'
+            f'route {self.route_file}: {route.length:.0f} m, {route.n_wp} waypoints, '
+            f'{"closed" if route.closed else "open"}'
             + (f', resuming at {start_progress:.0f} m' if start_progress is not None else ''))
 
         self.create_subscription(NavSatFix, p('fix_topic', '/fix').value, self.on_fix, 10)
@@ -64,7 +77,7 @@ class GpsWaypointFollower(Node):
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.wp_pub = self.create_publisher(String, '/nav/waypoints', latched)
         self.wp_pub.publish(String(data=json.dumps({
-            'route_file': self.route_file, 'radius': params.wp_radius,
+            'route_file': self.route_file, 'radius': params.wp_radius, 'closed': route.closed,
             'points': [[round(la, 7), round(lo, 7)] for la, lo in (route.enu.to_lla(*q) for q in route.p)]})))
         self.create_service(Trigger, '/nav/start', self.srv_start)
         self.create_service(Trigger, '/nav/stop', self.srv_stop)
@@ -72,6 +85,7 @@ class GpsWaypointFollower(Node):
         self.create_timer(0.5, self.publish_status)
         self.last_save = 0.0
         self.last_state = None
+        self.zero_pending = False
 
     def now(self):
         return time.monotonic()
@@ -99,7 +113,7 @@ class GpsWaypointFollower(Node):
 
     def srv_stop(self, req, res):
         self.enabled = False
-        self.cmd_pub.publish(Twist())
+        self.zero_pending = True
         res.success, res.message = True, 'paused'
         self.get_logger().info('navigation paused')
         return res
@@ -109,10 +123,15 @@ class GpsWaypointFollower(Node):
         if self.f.state != self.last_state:
             self.get_logger().info(f'state {self.last_state} -> {self.f.state} {self.f.reason}')
             self.last_state = self.f.state
+        if self.enabled and self.f.state in (DONE, FAULT):
+            self.enabled, self.zero_pending = False, True
         cmd = Twist()
         if self.enabled:
             cmd.linear.x, cmd.angular.z = float(v), float(w)
-        self.cmd_pub.publish(cmd)
+            self.cmd_pub.publish(cmd)
+        elif self.zero_pending:
+            self.cmd_pub.publish(cmd)
+            self.zero_pending = False
         if self.f.s is not None and self.now() - self.last_save > 5.0:
             self.save_progress()
 
@@ -121,14 +140,15 @@ class GpsWaypointFollower(Node):
         os.makedirs(os.path.dirname(self.progress_file), exist_ok=True)
         tmp = self.progress_file + '.tmp'
         with open(tmp, 'w') as fh:
-            json.dump({'route_file': self.route_file, 'progress': self.f.progress,
+            json.dump({'route_file': self.route_file, 'route_id': self.route_id, 'progress': self.f.progress,
                        'state': self.f.state, 'time': time.time()}, fh)
         os.replace(tmp, self.progress_file)
 
     def publish_status(self):
         f = self.f
         lla = f.route.enu.to_lla(*f.pos) if f.pos is not None else None
-        st = {'state': f.state, 'enabled': self.enabled, 'reason': f.reason,
+        st = {'state': f.state, 'enabled': self.enabled, 'reason': f.reason, 'task': self.task_name,
+              'closed': f.route.closed, 'route_id': self.route_id,
               'progress_m': round(f.progress, 1), 'route_m': round(f.route.length, 1),
               'xte_m': round(f.xte, 2),
               'yaw_deg': None if f.yaw is None else round(math.degrees(f.yaw), 1),
@@ -138,7 +158,7 @@ class GpsWaypointFollower(Node):
         wp = f.next_waypoint()
         if wp is not None:
             wlat, wlon = f.route.enu.to_lla(*wp[1])
-            st.update({'wp_idx': wp[0], 'wp_first': f.first_waypoint, 'wp_n': len(f.route.s0),
+            st.update({'wp_idx': wp[0], 'wp_first': f.first_waypoint, 'wp_n': f.route.n_wp,
                        'wp_lat': round(wlat, 7), 'wp_lon': round(wlon, 7),
                        'wp_dist_m': round(wp[2], 1), 'wp_radius_m': f.P.wp_radius})
         self.status_pub.publish(String(data=json.dumps(st)))

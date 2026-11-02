@@ -29,6 +29,11 @@ function wgs2gcj(lat, lon) {
   dLon = (dLon * 180) / (a / sq * Math.cos(rad) * Math.PI);
   return [lat + dLat, lon + dLon];
 }
+function gcj2wgs(lat, lon) {
+  let w = [lat, lon];
+  for (let i = 0; i < 4; i++) { const g = wgs2gcj(w[0], w[1]); w = [w[0] - (g[0] - lat), w[1] - (g[1] - lon)]; }
+  return w;
+}
 
 // ---------------------------------------------------------------- API
 async function post(path, body) {
@@ -59,7 +64,8 @@ const map = L.map('map', { zoomControl: true, attributionControl: true }).setVie
 let base = baseLayers['卫星 + 路网'].addTo(map);
 L.control.layers(baseLayers, null, { position: 'topright' }).addTo(map);
 const proj = (lat, lon) => (base.gcj ? wgs2gcj(lat, lon) : [lat, lon]);
-let routeWgs = [], trackWgs = [], follow = true, centered = false, routeRadius = 3, routeVer = -1;
+const unproj = (ll) => (base.gcj ? gcj2wgs(ll.lat, ll.lng) : [ll.lat, ll.lng]).map((v) => +v.toFixed(7));
+let routeWgs = [], trackWgs = [], follow = true, centered = false, routeRadius = 3, routeVer = -1, routeClosed = null;
 const cvRenderer = L.canvas({ padding: 0.5 });
 const routeLine = L.polyline([], { color: '#4a90d9', weight: 3, opacity: 0.85 }).addTo(map);
 const wpLayer = L.layerGroup().addTo(map);
@@ -79,16 +85,18 @@ function redrawGeo() {
   trackLine.setLatLngs(trackWgs.map(([a, b]) => proj(a, b)));
   wpLayer.clearLayers();
   // a closed loop repeats the first point at the end; draw it once
-  const n = routeWgs.length > 1 && routeWgs[0][0] === routeWgs.at(-1)[0] && routeWgs[0][1] === routeWgs.at(-1)[1]
-    ? routeWgs.length - 1 : routeWgs.length;
+  const n = routeWgs.length > 1 && (routeClosed || routeClosed === null)
+    && distM(routeWgs[0], routeWgs.at(-1)) < 0.5 ? routeWgs.length - 1 : routeWgs.length;
   wpMarkers = routeWgs.slice(0, n).map(([a, b], i) =>
     L.circleMarker(proj(a, b), { renderer: cvRenderer, ...wpStyle(i) }).bindTooltip(`路径点 #${i}`).addTo(wpLayer));
+  if (typeof drawPreview === 'function') drawPreview();
 }
 function loadRoute() {
   fetch('/api/route').then((r) => (r.ok ? r.json() : null)).then((g) => {
     if (!g || !g.points) return;
     routeWgs = g.points;
     routeRadius = g.radius || 3;
+    routeClosed = g.closed ?? null;
     redrawGeo();
     if (!centered) map.fitBounds(routeLine.getBounds(), { padding: [10, 10] });
   });
@@ -340,6 +348,186 @@ $('vlnform').onsubmit = async (e) => {
 };
 $('vlnstop').onclick = () => post('/api/vln/stop');
 
+// ---------------------------------------------------------------- GPS navigation task
+const NT = { pick: null, start: null, end: null, points: [], preview: null, routes: [], amap: false, timer: null };
+const pvLayer = L.layerGroup().addTo(map);
+const pickLayer = L.layerGroup().addTo(map);
+function navReq() {
+  return {
+    mode: $('navmode').value, base: $('navbase').value, start: NT.start, end: NT.end, points: NT.points,
+    reverse: $('navrev').checked, loop: $('navloop').checked, radius: +$('navradius').value,
+    max_v: +$('navv').value, spacing: +$('navspacing').value,
+  };
+}
+function drawPreview() {
+  pvLayer.clearLayers(); pickLayer.clearLayers();
+  const pv = NT.preview;
+  if (pv && pv.points.length) {
+    const ll = pv.points.map(([a, b]) => proj(a, b));
+    L.polyline(ll, { color: '#ff9f1c', weight: 4, opacity: 0.9 }).addTo(pvLayer);
+    const n = pv.closed && ll.length > 1 ? ll.length - 1 : ll.length;
+    for (let i = 0; i < n; i++) {
+      L.circle(ll[i], { renderer: cvRenderer, radius: pv.radius, color: '#ff9f1c', weight: 1, fillColor: '#ff9f1c',
+                        fillOpacity: 0.18, interactive: false }).addTo(pvLayer);
+      const m = L.circleMarker(ll[i], { renderer: cvRenderer, radius: 4, color: '#fff', weight: 1, fillColor: '#ff9f1c',
+                                        fillOpacity: 1 }).addTo(pvLayer);
+      if (n <= 80) m.bindTooltip(String(i), { permanent: true, direction: 'right', className: 'wplabel', offset: [4, 0] });
+      else m.bindTooltip(`预览点 #${i}`);
+    }
+  }
+  const mark = (p, color, txt) => p && L.circleMarker(proj(p[0], p[1]), { radius: 8, color: '#fff', weight: 2,
+    fillColor: color, fillOpacity: 1 }).bindTooltip(txt).addTo(pickLayer);
+  mark(NT.start, '#3fb950', '起点');
+  mark(NT.end, '#f85149', '终点');
+  NT.points.forEach((p, i) => mark(p, '#a371f7', `途经点 ${i + 1}`));
+}
+function renderPickInfo() {
+  const f = (p, dflt) => (p ? `${p[0].toFixed(6)}, ${p[1].toFixed(6)}` : dflt);
+  const mode = $('navmode').value;
+  const dEnd = mode === 'route' ? ($('navloop').checked ? '回到起点' : '路线终点') : '未选';
+  $('navpts').textContent = `起点：${f(NT.start, mode === 'amap' ? '当前位置' : mode === 'route' ? '路线起点' : '未选')} · `
+    + `终点：${f(NT.end, dEnd)}` + (mode === 'manual' ? ` · 途经点 ${NT.points.length} 个` : '');
+  document.querySelectorAll('.navpick [data-pick]').forEach((b) => b.classList.toggle('on', NT.pick === b.dataset.pick));
+  $('map').classList.toggle('picking', !!NT.pick);
+}
+function navFormChanged() {
+  const mode = $('navmode').value;
+  $('navbasel').style.display = mode === 'route' ? '' : 'none';
+  $('navrevl').style.display = mode === 'route' ? '' : 'none';
+  $('pickpts').style.display = mode === 'manual' ? '' : 'none';
+  $('navradiusv').textContent = $('navradius').value;
+  $('navvv').textContent = $('navv').value;
+  renderPickInfo();
+  clearTimeout(NT.timer);
+  if (mode === 'amap') { NT.preview = null; drawPreview(); showPreviewInfo(null, '高德规划需点“预览”'); return; }
+  NT.timer = setTimeout(previewTask, 300);
+}
+let navInfoNote = null;
+function showPreviewInfo(pv, err) {
+  navInfoNote = err ? `<span style="color:#f85149">${esc(err)}</span>` : pv
+    ? `预览：${pv.n} 个路径点 · ${(pv.length_m / 1000).toFixed(2)} km · ${pv.closed ? '闭环' : '单程'} · `
+      + `约 ${Math.round(pv.eta_s / 60)} 分钟 @ ${pv.max_v} m/s`
+      + (pv.warnings && pv.warnings.length ? ` · <span style="color:#d29922">⚠ ${esc(pv.warnings.join('；'))}</span>` : '')
+    : null;
+  if (S.state) renderNav(S.state);
+}
+async function previewTask() {
+  const req = navReq();
+  if (req.mode === 'manual' && [req.start, ...req.points, req.end].filter(Boolean).length < 2) {
+    NT.preview = null; drawPreview(); showPreviewInfo(null, '手动模式：在地图上选起点、途经点和终点'); return null;
+  }
+  const r = await post('/api/nav/preview', { task: req });
+  if (r.error || !r.ok) { NT.preview = null; drawPreview(); showPreviewInfo(null, r.error || '预览失败'); return null; }
+  NT.preview = r; drawPreview(); showPreviewInfo(r);
+  return r;
+}
+map.on('click', (e) => {
+  if (!NT.pick) return;
+  const p = unproj(e.latlng);
+  if (NT.pick === 'points') NT.points.push(p);
+  else { NT[NT.pick] = p; NT.pick = null; }
+  navFormChanged();
+});
+document.querySelectorAll('.navpick [data-pick]').forEach((b) => {
+  b.onclick = () => { NT.pick = NT.pick === b.dataset.pick ? null : b.dataset.pick; follow = false;
+    $('follow').classList.remove('on'); renderPickInfo(); };
+});
+$('herestart').onclick = () => {
+  const f = S.state && S.state.fix;
+  if (!f || !f.ok) { alert('当前没有 GPS 定位'); return; }
+  NT.start = [f.lat, f.lon]; navFormChanged();
+};
+$('navundo').onclick = () => {
+  if (NT.points.length && $('navmode').value === 'manual') NT.points.pop();
+  else if (NT.end) NT.end = null; else NT.start = null;
+  navFormChanged();
+};
+$('navclear').onclick = () => { NT.start = NT.end = null; NT.points = []; NT.pick = null; navFormChanged(); };
+['navmode', 'navbase', 'navrev', 'navloop', 'navradius', 'navv', 'navspacing'].forEach((id) => {
+  $(id).addEventListener(id === 'navradius' || id === 'navv' ? 'input' : 'change', navFormChanged);
+});
+$('navpreview').onclick = async () => {
+  const r = await previewTask();
+  if (r && r.points.length) map.fitBounds(L.latLngBounds(r.points.map(([a, b]) => proj(a, b))), { padding: [20, 20] });
+};
+$('navgo').onclick = async () => {
+  if (S.estop) { alert('先解除急停'); return; }
+  const pv = await previewTask();
+  if (!pv) return;
+  if (!confirm(`启动 GPS 导航：${pv.n} 个路径点，${(pv.length_m / 1000).toFixed(2)} km，限速 ${pv.max_v} m/s。\n`
+    + '机器人将自主移动，确认周围安全？')) return;
+  disarm();
+  const r = await post('/api/nav/start', { task: navReq() });
+  if (r.error) { alert('启动失败：' + r.error); return; }
+  NT.preview = null; NT.pick = null; drawPreview(); showPreviewInfo(null); renderPickInfo();
+};
+$('navresume').onclick = async () => {
+  if (S.estop) { alert('先解除急停'); return; }
+  if (!confirm('继续当前 GPS 导航任务？机器人将自主移动。')) return;
+  disarm();
+  const r = await post('/api/nav/start', {});
+  if (r.error) alert('继续失败：' + r.error);
+};
+$('navpause').onclick = () => post('/api/nav/pause');
+$('navcancel').onclick = () => { if (confirm('结束当前导航任务？')) post('/api/nav/cancel'); };
+fetch('/api/nav/routes').then((r) => r.json()).then((d) => {
+  NT.routes = d.routes || []; NT.amap = d.amap;
+  $('navbase').innerHTML = NT.routes.map((n) => `<option>${esc(n)}</option>`).join('');
+  $('navmode').querySelector('option[value=amap]').textContent = '高德步行规划' + (d.amap ? '' : '（未配置 Key）');
+  const q = d.task && d.task.req;
+  if (q) {  // restore the form from the saved task
+    $('navmode').value = q.mode || 'route';
+    if (q.base && NT.routes.includes(q.base)) $('navbase').value = q.base;
+    NT.start = q.start || null; NT.end = q.end || null; NT.points = q.points || [];
+    $('navrev').checked = !!q.reverse; $('navloop').checked = !!q.loop;
+    $('navradius').value = q.radius ?? 3; $('navv').value = q.max_v ?? 0.3; $('navspacing').value = q.spacing ?? 25;
+  }
+  const mode = $('navmode').value;
+  $('navbasel').style.display = mode === 'route' ? '' : 'none';
+  $('navrevl').style.display = mode === 'route' ? '' : 'none';
+  $('pickpts').style.display = mode === 'manual' ? '' : 'none';
+  $('navradiusv').textContent = $('navradius').value; $('navvv').textContent = $('navv').value;
+  renderPickInfo(); drawPreview();
+}).catch(() => {});
+
+const NAV_STATE = {
+  WAIT_FIX: ['等待 GPS 定位', 'warn'], ALIGN: ['对准航向', 'run'], FOLLOW: ['导航中', 'run'],
+  HOLD: ['GPS 丢失，原地等待', 'warn'], DONE: ['已到达终点', 'ok'], FAULT: ['故障停止', 'bad'],
+};
+function renderNav(st) {
+  const nav = st.nav, task = st.nav_task, mod = (st.modules || {}).nav || {};
+  let label, cls;
+  if (st.nav_pending) [label, cls] = ['启动中…', 'warn'];
+  else if (!nav) [label, cls] = [task ? (mod.wanted ? '导航节点启动中' : '未运行（可继续）') : '无任务', ''];
+  else if (nav.state === 'DONE' || nav.state === 'FAULT') [label, cls] = NAV_STATE[nav.state];
+  else if (!nav.enabled) [label, cls] = ['已暂停', 'warn'];
+  else [label, cls] = NAV_STATE[nav.state] || [nav.state, ''];
+  $('navstate').textContent = label; $('navstate').className = 'pill ' + cls;
+  const moving = !!(nav && nav.enabled) || st.nav_pending;
+  $('navpause').disabled = !moving;
+  $('navresume').disabled = !task || moving || st.estop;
+  $('navgo').disabled = !!st.estop;
+  $('navcancel').disabled = !(mod.running || mod.wanted || st.nav_pending);
+  $('navresume').textContent = nav && nav.state === 'DONE' ? '重新开始' : '继续';
+  const MODE = { route: '沿路线', manual: '手动点选', amap: '高德规划' };
+  const rows = [];
+  if (task) {
+    rows.push(['任务', `${MODE[task.mode] || task.mode}${task.base ? ' · ' + esc(task.base) : ''}${task.reverse ? ' · 反向' : ''}`
+      + ` · ${task.n} 点 · ${(task.length_m / 1000).toFixed(2)} km · ${task.closed ? '闭环' : '单程'}`
+      + ` · 半径 ${task.radius} m · 限速 ${task.max_v} m/s`]);
+  }
+  if (nav) {
+    const pct = nav.route_m ? Math.min(100, (100 * nav.progress_m) / nav.route_m).toFixed(0) : '--';
+    rows.push(['进度', `${fmt(nav.progress_m, 0)} / ${fmt(nav.route_m, 0)} m（${pct}%）· 偏离 ${fmt(nav.xte_m, 1)} m`]);
+    if (nav.wp_idx != null) rows.push(['下一点', `${nav.wp_idx < 0 ? '终点' : '#' + nav.wp_idx} / ${nav.wp_n} · ${fmt(nav.wp_dist_m, 1)} m`]);
+    if (nav.reason) rows.push(['原因', esc(nav.reason)]);
+  }
+  if (st.nav_msg) rows.push(['消息', esc(st.nav_msg)]);
+  if (navInfoNote) rows.push(['预览', navInfoNote]);
+  const html = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  if (html !== renderNav.last) { $('navinfo').innerHTML = html; renderNav.last = html; }
+}
+
 // ---------------------------------------------------------------- SSE
 let es = null, lastMsg = 0;
 function connect() {
@@ -349,7 +537,7 @@ function connect() {
     const st = JSON.parse(ev.data);
     S.state = st; lastMsg = Date.now();
     if (st.lidar) lidarPts = st.lidar;
-    renderHeader(st); renderTopics(st); renderInfo(st); renderModules(st); renderVln(st); updateMap(st); drawLidar();
+    renderHeader(st); renderTopics(st); renderInfo(st); renderModules(st); renderVln(st); renderNav(st); updateMap(st); drawLidar();
   };
   es.onerror = () => { $('conn').textContent = '重连中'; $('conn').className = 'pill bad'; };
 }

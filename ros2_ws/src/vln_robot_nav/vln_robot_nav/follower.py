@@ -106,9 +106,17 @@ class RouteFollower:
     def progress(self):
         return 0.0 if self.s is None else self.s - self.s_start
 
+    @property
+    def end(self):
+        """Unwrapped arc length where the route ends."""
+        return self.s_start + self.route.length if self.route.closed else self.route.length
+
     def _vertex_after(self, s):
         """(index, unwrapped arc length) of the first route vertex strictly after arc length s."""
         r = self.route
+        if not r.closed:
+            k = int(np.searchsorted(r.s0, s, side='right'))
+            return (k, float(r.s0[k])) if k < len(r.s0) else (len(r.p) - 1, r.length)
         base = math.floor(s / r.length) * r.length
         k = int(np.searchsorted(r.s0, s - base, side='right'))
         if k >= len(r.s0):
@@ -124,7 +132,7 @@ class RouteFollower:
         `wp_radius`. Returns (index, (e, n), distance_m); index -1 = route end (not a vertex)."""
         if self.s is None or self.pos is None:
             return None
-        r, end = self.route, self.s_start + self.route.length
+        r, end = self.route, self.end
         k, sk = self._vertex_after(self.s)
         while sk < end - 1e-6:
             d = float(np.hypot(*(r.p[k] - self.pos)))
@@ -135,7 +143,7 @@ class RouteFollower:
         k_goal = int(np.argmin(np.hypot(*(r.p - goal).T)))
         if np.hypot(*(r.p[k_goal] - goal)) > 1e-3:
             k_goal = -1
-        return k_goal % len(r.s0) if k_goal >= 0 else -1, goal, float(np.hypot(*(goal - self.pos)))
+        return k_goal % r.n_wp if k_goal >= 0 else -1, goal, float(np.hypot(*(goal - self.pos)))
 
     def step(self, t):
         """Returns (v, w) command. Call at >= 10 Hz."""
@@ -150,24 +158,28 @@ class RouteFollower:
             return 0.0, 0.0
 
         if self.s is None:
+            r = self.route
             if self.start_progress is not None:
-                s, xte = self.route.project(self.pos, self.start_progress,
-                                            back=3 * P.search_fwd, fwd=3 * P.search_fwd)
+                s, xte = r.project(self.pos, self.start_progress,
+                                   back=3 * P.search_fwd, fwd=3 * P.search_fwd)
                 if s is not None:
-                    self.s_start = s - self.start_progress
+                    self.s_start = s - self.start_progress if r.closed else 0.0
             else:
-                s, xte = self.route.project(self.pos)
+                s, xte = r.project(self.pos)
                 if s is not None:
-                    # starting at the finish point means "start of route", not "already done"
-                    s = s if s < self.route.length - P.goal_tol else 0.0
-                    self.s_start = s
+                    if r.closed:
+                        # starting at the finish point means "start of route", not "already done"
+                        s = s if s < r.length - P.goal_tol else 0.0
+                        self.s_start = s
+                    else:
+                        self.s_start = 0.0      # open route: join at the closest point
             if s is None or abs(xte) > P.start_radius:
                 self.state = FAULT
                 self.reason = f'not on route (distance {abs(xte or 1e9):.0f} m > {P.start_radius} m)'
                 return 0.0, 0.0
             self.s = s
 
-        end = self.s_start + self.route.length
+        end = self.end
         s, xte = self.route.project(self.pos, self.s, P.search_back, max(0.0, min(P.search_fwd, end - self.s)))
         if s is None or abs(xte) > P.max_xte:
             self.state = FAULT
@@ -176,7 +188,7 @@ class RouteFollower:
         self.s = max(self.s, s)   # progress is monotonic
         self.xte = xte
 
-        if self.progress >= self.route.length - P.goal_tol:
+        if self.s >= end - P.goal_tol:
             self.state, self.reason = DONE, 'route completed'
             return 0.0, 0.0
 
@@ -185,11 +197,11 @@ class RouteFollower:
             return P.align_v, 0.0
 
         self.state = FOLLOW
-        target = self.route.point_at(min(self.s + P.lookahead, self.s_start + self.route.length))
+        target = self.route.point_at(min(self.s + P.lookahead, end))
         alpha, k = pure_pursuit(self.pos, self.yaw, target)
         if abs(alpha) > P.turn_in_place:
             return 0.0, math.copysign(P.max_w, alpha)
-        remaining = self.s_start + self.route.length - self.s
+        remaining = end - self.s
         v = P.max_v * max(0.3, math.cos(alpha)) * min(1.0, remaining / 5.0)
         v = max(P.min_v, v)
         w = float(np.clip(v * k, -P.max_w, P.max_w))

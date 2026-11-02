@@ -45,6 +45,7 @@ from rclpy.time import Time
 from sensor_msgs.msg import BatteryState, Image, Imu, NavSatFix, PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Bool, Empty, String
+from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .supervisor import Supervisor
@@ -189,9 +190,26 @@ class WebNode(Node):
                       f'server_url:={self.vln_server_url}', f'use_depth:={str(vln_use_depth).lower()}'],
                      autostart=False)
 
+        # GPS navigation task: gps_waypoint_follower runs as a supervised module, its command line is
+        # rebuilt for every task (route file + parameters); it always starts paused and resumes progress
+        self.nav_cmd_topic = cmd_topic
+        self.nav_dir = os.path.expanduser('~/.ros/vln_robot_web')
+        self.nav_task_file = os.path.join(self.nav_dir, 'nav_task.json')
+        self.nav_csv = os.path.join(self.nav_dir, 'nav_task.csv')
+        self.nav_progress = os.path.join(self.nav_dir, 'nav_progress.json')
+        self.nav_task = None        # {'req', 'result', 'route_id', 't'}
+        self.nav_pending = None     # start request waiting for the follower: {'t', 'route_id', 'since', 'future'}
+        self.nav_msg = ''
+        self.nav_rx = 0.0
+        self.nav_start_cli = self.create_client(Trigger, '/nav/start')
+        self.nav_stop_cli = self.create_client(Trigger, '/nav/stop')
+        self.sup.add('nav', 'GPS 导航', ['true'], autostart=False)
+        self.load_nav_task()
+
         self.create_timer(0.05, self.cmd_tick)
         self.create_timer(0.5, self.lidar_tick)
         self.create_timer(0.5, self.vln_tick)
+        self.create_timer(0.5, self.nav_tick)
         threading.Thread(target=self.sys_loop, daemon=True).start()
         threading.Thread(target=self.health_loop, daemon=True).start()
 
@@ -319,6 +337,7 @@ class WebNode(Node):
     def on_nav(self, msg):
         try:
             self.nav = json.loads(msg.data)
+            self.nav_rx = time.time()
         except ValueError:
             pass
 
@@ -336,6 +355,7 @@ class WebNode(Node):
         return age is not None and age < 3.0
 
     def send_instruction(self, text):
+        self.nav_pause('VLN 接管：GPS 导航已暂停')
         if self.vln_alive():
             self.instr_pub.publish(String(data=text))
             self.vln_pending = None
@@ -355,6 +375,212 @@ class WebNode(Node):
             self.instr_pub.publish(String(data=self.vln_pending))
             self.get_logger().info(f'VLN instruction delivered: {self.vln_pending}')
             self.vln_pending = None
+
+    # ------------------------------------------------------------------ GPS navigation task
+    def nav_alive(self):
+        _, age = self.rates['nav'].stats()
+        return self.nav if age is not None and age < 3.0 else None
+
+    def nav_route_files(self):
+        dirs = [os.path.join(self.nav_dir, 'routes')]
+        try:
+            dirs.insert(0, os.path.join(get_package_share_directory('vln_robot_nav'), 'routes'))
+        except PackageNotFoundError:
+            pass
+        out = {}
+        for d in dirs:
+            if os.path.isdir(d):
+                for f in sorted(os.listdir(d)):
+                    if f.endswith('.csv'):
+                        out[f[:-4]] = os.path.join(d, f)
+        return out
+
+    def nav_base(self, name, simplified=False):
+        from vln_robot_nav.geo import load_route_csv, simplify_waypoints
+        path = self.nav_route_files().get(str(name))
+        if path is None:
+            raise ValueError(f'没有路线 {name}')
+        pts = load_route_csv(path)
+        return simplify_waypoints(pts) if simplified else pts
+
+    def nav_build(self, req):
+        """Validate a task request from the browser and build its waypoints."""
+        from vln_robot_nav.task import build_task
+        mode = req.get('mode', 'route')
+        task = {'mode': mode, 'start': req.get('start'), 'end': req.get('end'),
+                'points': (req.get('points') or [])[:200], 'reverse': bool(req.get('reverse')),
+                'loop': bool(req.get('loop')),
+                'max_spacing': max(3.0, min(100.0, float(req.get('spacing', 25.0))))}
+        base = self.nav_base(req.get('base', 'dishui_lake')) if mode == 'route' else None
+        walker = None
+        if mode == 'amap':
+            from vln_robot_nav import amap
+            key = amap.load_key()
+            if not key:
+                raise ValueError('机器人上未配置高德 Web 服务 Key（~/.config/vln_robot_web/amap_key）')
+            if task['start'] is None and self.fix and self.fix.get('ok'):
+                task['start'] = [self.fix['lat'], self.fix['lon']]
+            walker = lambda a, b: amap.walking(a, b, key)  # noqa: E731
+        res = build_task(task, base, walker)
+        radius = max(1.0, min(10.0, float(req.get('radius', self.wp_radius))))
+        max_v = max(0.1, min(self.max_v, float(req.get('max_v', self.max_v))))
+        clean = dict(task, base=req.get('base') if mode == 'route' else None, radius=radius, max_v=max_v,
+                     spacing=task['max_spacing'])
+        res.update(radius=radius, max_v=max_v, eta_s=round(res['length_m'] / max(0.05, 0.85 * max_v)))
+        return clean, res
+
+    def _nav_summary(self):
+        t = self.nav_task
+        if not t:
+            return None
+        r, q = t['result'], t['req']
+        return {'mode': q.get('mode'), 'base': q.get('base'), 'n': r['n'], 'length_m': r['length_m'],
+                'closed': r['closed'], 'radius': q['radius'], 'max_v': q['max_v'], 'route_id': t['route_id'],
+                'reverse': q.get('reverse'), 'loop': q.get('loop'), 'warnings': r.get('warnings', []),
+                'eta_s': r.get('eta_s'), 't': t.get('t')}
+
+    def _nav_set_cmd(self):
+        q, r = self.nav_task['req'], self.nav_task['result']
+        cmd = ['ros2', 'run', 'vln_robot_nav', 'gps_waypoint_follower', '--ros-args']
+        try:
+            yaml = os.path.join(get_package_share_directory('vln_robot_nav'), 'config', 'follower.yaml')
+            if os.path.exists(yaml):
+                cmd += ['--params-file', yaml]
+        except PackageNotFoundError:
+            pass
+        v = q['max_v']
+        # floats need a decimal point, otherwise ROS parses them as integers and the declare fails
+        for k, val in (('route_file', self.nav_csv), ('closed', 'true' if r['closed'] else 'false'),
+                       ('cmd_topic', self.nav_cmd_topic), ('wp_radius', f'{q["radius"]:.2f}'),
+                       ('goal_tol', f'{min(3.0, q["radius"]):.2f}'),
+                       ('max_v', f'{v:.2f}'), ('min_v', f'{min(0.15, v):.2f}'), ('align_v', f'{min(0.3, v):.2f}'),
+                       ('wp_max_spacing', f'{q["spacing"]:.2f}'), ('autostart', 'false'), ('resume', 'true'),
+                       ('progress_file', self.nav_progress)):
+            cmd += ['-p', f'{k}:={val}']
+        self.sup.modules['nav'].cmd = cmd
+
+    def _nav_set_route(self):
+        r = self.nav_task['result']
+        self.route = {'radius': self.nav_task['req']['radius'], 'source': 'task', 'closed': r['closed'],
+                      'points': r['points']}
+        self.route_ver += 1
+
+    def load_nav_task(self):
+        try:
+            with open(self.nav_task_file) as f:
+                t = json.load(f)
+            if not os.path.exists(self.nav_csv):
+                return
+            self.nav_task = t
+            self._nav_set_cmd()
+            self._nav_set_route()
+        except FileNotFoundError:
+            pass
+        except Exception as e:  # noqa: BLE001
+            self.nav_task = None
+            self.get_logger().warning(f'cannot load nav task: {e}')
+
+    def nav_save(self, req, res):
+        os.makedirs(self.nav_dir, exist_ok=True)
+        csv = 'lat,lon\n' + ''.join(f'{la:.7f},{lo:.7f}\n' for la, lo in res['points'])
+        with open(self.nav_csv + '.tmp', 'w') as f:
+            f.write(csv)
+        os.replace(self.nav_csv + '.tmp', self.nav_csv)
+        import hashlib
+        self.nav_task = {'req': req, 'result': res, 't': time.time(),
+                         'route_id': hashlib.sha1(csv.encode()).hexdigest()[:12]}
+        with open(self.nav_task_file + '.tmp', 'w') as f:
+            json.dump(self.nav_task, f)
+        os.replace(self.nav_task_file + '.tmp', self.nav_task_file)
+        self._nav_set_cmd()
+        self._nav_set_route()
+
+    def _nav_launch(self, fresh):
+        """(Re)start the follower process; it comes up paused, nav_tick then calls /nav/start."""
+        if fresh and os.path.exists(self.nav_progress):
+            os.remove(self.nav_progress)
+        m = self.sup.modules['nav']
+        if m.proc is not None:
+            self.sup.restart('nav')
+        else:
+            self.sup.start('nav')
+        m.backoff = 2.0
+        return time.time()
+
+    def nav_start(self, req=None):
+        """New task (req) or resume the saved one. Returns a user message."""
+        if self.estop:
+            raise ValueError('急停中')
+        if req is not None:
+            clean, res = self.nav_build(req)
+            self.nav_save(clean, res)
+        if not self.nav_task:
+            raise ValueError('没有导航任务，请先设置并预览')
+        self.vln_stop()
+        self.stop()
+        st, m = self.nav_alive(), self.sup.modules['nav']
+        running = m.proc is not None and m.proc.poll() is None and not m.busy
+        same = st is not None and st.get('route_id') == self.nav_task['route_id']
+        since = None
+        if req is not None:
+            since, msg = self._nav_launch(fresh=True), '新任务启动中'
+        elif not running or not same:
+            since, msg = self._nav_launch(fresh=False), '导航节点启动中（从上次进度继续）'
+        elif st.get('state') == 'DONE':
+            since, msg = self._nav_launch(fresh=True), '任务已完成，重新开始'
+        elif st.get('state') == 'FAULT':
+            since, msg = self._nav_launch(fresh=False), '从故障中恢复（从上次进度继续）'
+        else:
+            msg = '继续'
+        self.nav_pending = {'t': time.time(), 'route_id': self.nav_task['route_id'], 'since': since,
+                            'future': None}
+        self.nav_msg = msg
+        return msg
+
+    def nav_pause(self, why='已暂停'):
+        had = self.nav_pending is not None
+        self.nav_pending = None
+        st = self.nav_alive()
+        if st is not None and (st.get('enabled') or had):
+            if self.nav_stop_cli.service_is_ready():
+                self.nav_stop_cli.call_async(Trigger.Request())
+            self.cmd_pub.publish(Twist())
+            self.nav_msg = why
+        elif had:
+            self.nav_msg = why
+
+    def nav_cancel(self):
+        self.nav_pending = None
+        self.sup.stop('nav')
+        self.cmd_pub.publish(Twist())
+        self.nav_msg = '任务已结束'
+
+    def nav_tick(self):
+        p = self.nav_pending
+        if p is None:
+            return
+        if self.estop:
+            self.nav_pending, self.nav_msg = None, '急停：取消启动'
+            return
+        if time.time() - p['t'] > 45.0:
+            self.nav_pending, self.nav_msg = None, '启动超时：导航节点没有响应（查看 nav 模块日志）'
+            return
+        if p['future'] is not None:
+            if p['future'].done():
+                r = p['future'].result()
+                self.nav_pending = None
+                self.nav_msg = '导航中' if r is not None and r.success else f'启动失败：{getattr(r, "message", "")}'
+            return
+        st = self.nav_alive()
+        if st is None or st.get('route_id') != p['route_id']:
+            return
+        if p['since'] is not None:
+            m = self.sup.modules['nav']
+            if m.busy or m.proc is None or m.started < p['since'] or self.nav_rx < m.started + 0.5:
+                return
+        if not self.nav_start_cli.service_is_ready():
+            return
+        p['future'] = self.nav_start_cli.call_async(Trigger.Request())
 
     # ------------------------------------------------------------------ periodic work
     def cmd_tick(self):
@@ -463,8 +689,9 @@ class WebNode(Node):
                 'modules': self.sup.status(), 'managed': any(n in self.sup.modules for n, _ in DRIVERS),
                 'vln': self.vln if self.vln_alive() else None, 'vln_pending': self.vln_pending,
                 'server': self.server,
-                'nav': self.nav if self.rates['nav'].stats()[1] is not None
-                and self.rates['nav'].stats()[1] < 3.0 else None,
+                'nav': self.nav_alive(),
+                'nav_task': self._nav_summary(), 'nav_pending': self.nav_pending is not None,
+                'nav_msg': self.nav_msg,
                 'route_ver': self.route_ver,
                 'limits': {'max_v': self.max_v, 'max_w': self.max_w, 'deadman': self.deadman},
                 'clients': self.n_clients}
@@ -481,6 +708,8 @@ class WebNode(Node):
         if self.vln_alive() and (self.vln or {}).get('active'):
             # manual driving takes over: cancel the VLN task so both don't fight over /vln/cmd_vel
             self.vln_stop()
+        if self.nav_pending is not None or (self.nav_alive() or {}).get('enabled'):
+            self.nav_pause('手动遥控接管：GPS 导航已暂停')
 
     def stop(self):
         self.web_cmd = (0.0, 0.0, 0.0)
@@ -492,6 +721,7 @@ class WebNode(Node):
         if self.estop:
             self.stop()
             self.vln_stop()
+            self.nav_pause('急停：GPS 导航已暂停')
         self.estop_pub.publish(Bool(data=self.estop))
         self.get_logger().warn(f'web E-STOP {"ON" if self.estop else "OFF"}')
 
@@ -592,6 +822,16 @@ def make_handler(node: WebNode):
                 return self._send(404, {'error': 'no route'})
             if u.path == '/api/events':
                 return self._events(qs)
+            if u.path == '/api/nav/routes':
+                from vln_robot_nav import amap
+                return self._send(200, {'routes': list(node.nav_route_files()), 'amap': bool(amap.load_key()),
+                                        'task': node.nav_task})
+            if u.path == '/api/nav/base':
+                try:
+                    pts = node.nav_base(qs.get('name', [''])[0], simplified=True)
+                except ValueError as e:
+                    return self._send(404, {'error': str(e)})
+                return self._send(200, {'points': [[round(a, 7), round(b, 7)] for a, b in pts]})
             if u.path == '/stream.mjpg':
                 return self._mjpeg(qs)
             if u.path == '/snapshot.jpg':
@@ -672,6 +912,8 @@ def make_handler(node: WebNode):
                 name, action = str(body.get('name', '')), body.get('action', 'restart')
                 if name != 'all' and name not in node.sup.modules:
                     return self._send(404, {'error': f'unknown module {name}'})
+                if name == 'nav' and not node.nav_task:
+                    return self._send(400, {'error': '没有导航任务'})
                 if action == 'restart':
                     if name in ('all', 'chassis'):
                         node.stop()
@@ -690,6 +932,24 @@ def make_handler(node: WebNode):
             if u.path == '/api/vln/stop':
                 node.vln_stop()
                 return self._send(200, {'ok': True})
+            if u.path.startswith('/api/nav/'):
+                try:
+                    if u.path == '/api/nav/preview':
+                        _, res = node.nav_build(body.get('task') or {})
+                        return self._send(200, dict(res, ok=True))
+                    if u.path == '/api/nav/start':
+                        msg = node.nav_start(body.get('task'))
+                        return self._send(200, {'ok': True, 'msg': msg, 'task': node._nav_summary()})
+                    if u.path == '/api/nav/pause':
+                        node.nav_pause()
+                        return self._send(200, {'ok': True})
+                    if u.path == '/api/nav/cancel':
+                        node.nav_cancel()
+                        return self._send(200, {'ok': True})
+                except (ValueError, TypeError, KeyError) as e:
+                    return self._send(400, {'error': str(e)})
+                except Exception as e:  # noqa: BLE001 - e.g. AMap network errors
+                    return self._send(502, {'error': f'{type(e).__name__}: {e}'[:300]})
             return self._send(404, {'error': 'not found'})
 
     return Handler
