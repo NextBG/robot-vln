@@ -590,11 +590,16 @@ function toggleArm() {
   $('cmdinfo').textContent = '遥控已开启 · 按住移动，松手即停 · 再按 T 关闭';
 }
 document.querySelectorAll('.armbtn').forEach((b) => { b.onclick = (e) => { e.currentTarget.blur(); toggleArm(); }; });
+let estopReleasedAt = 0;
 $('estop').onclick = async () => {
   if (S.estop) {
     if (!confirm('确认解除急停？')) return;
+    estopReleasedAt = Date.now();
     await post('/api/estop', { on: false });
+    estopReleasedAt = Date.now();
   } else {
+    // a double/ghost tap right after releasing must not re-engage (the button flips under the finger)
+    if (Date.now() - estopReleasedAt < 1000) return;
     disarm('已急停');
     await post('/api/estop', { on: true });
   }
