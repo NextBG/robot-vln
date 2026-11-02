@@ -17,7 +17,10 @@ def generate_launch_description():
         DeclareLaunchArgument('use_depth', default_value='true',
                               description='Send LiDAR-projected depth (needed by RGB-D policies, e.g. NavDP S1)'),
         DeclareLaunchArgument('instruction', default_value=''),
-        Node(package='vln_robot_client', executable='safety_stop', output='screen'),
+        DeclareLaunchArgument('with_safety', default_value='true',
+                              description='false when safety_stop already runs (e.g. web dashboard)'),
+        Node(package='vln_robot_client', executable='safety_stop', output='screen',
+             condition=IfCondition(LaunchConfiguration('with_safety'))),
         Node(package='vln_robot_client', executable='lidar_depth_projector', output='screen',
              condition=IfCondition(use_depth)),
         Node(package='vln_robot_client', executable='vln_client', output='screen', parameters=[{

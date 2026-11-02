@@ -2,5 +2,5 @@
 # MEASURE THESE ON THE REAL ROBOT. Values below are placeholders for an S1 with a
 # sensor plate on top of the gimbal mount.
 camera_link:      {x: 0.12, y: 0.0, z: 0.30, roll: 0.0, pitch: 0.0, yaw: 0.0}
-livox_frame:      {x: 0.00, y: 0.0, z: 0.38, roll: 0.0, pitch: 0.0, yaw: 0.0}
+livox_frame:      {x: 0.00, y: 0.0, z: 0.38, roll: 0.0, pitch: 0.0, yaw: -1.5708}  # Mid-360 mounted with its +Y toward the robot front (verified 2026-11-02)
 gps_link:         {x: -0.10, y: 0.0, z: 0.35, roll: 0.0, pitch: 0.0, yaw: 0.0}

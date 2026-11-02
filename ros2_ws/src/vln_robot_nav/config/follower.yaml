@@ -9,3 +9,6 @@ gps_waypoint_follower:
     fix_timeout: 2.5
     max_fix_std: 6.0
     goal_tol: 3.0
+    wp_radius: 3.0          # m, waypoint reached inside this radius (drawn on the dashboard map)
+    wp_simplify_tol: 1.0    # m, Douglas-Peucker tolerance: dense route -> corner waypoints
+    wp_max_spacing: 25.0    # m, split long straight legs

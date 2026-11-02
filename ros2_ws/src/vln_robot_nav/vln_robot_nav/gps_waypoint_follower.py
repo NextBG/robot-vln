@@ -18,12 +18,13 @@ import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import NavSatFix, NavSatStatus
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
 from .follower import DONE, FAULT, FollowerParams, RouteFollower
-from .geo import LoopRoute, load_route_csv
+from .geo import LoopRoute, load_route_csv, simplify_waypoints
 
 
 def yaw_from_quat(q):
@@ -42,7 +43,9 @@ class GpsWaypointFollower(Node):
         for k in [k for k in dir(FollowerParams) if not k.startswith('_')]:
             setattr(params, k, float(p(k, float(getattr(FollowerParams, k))).value))
 
-        route = LoopRoute(load_route_csv(self.route_file))
+        route = LoopRoute(simplify_waypoints(load_route_csv(self.route_file),
+                                             p('wp_simplify_tol', 1.0).value,
+                                             p('wp_max_spacing', 25.0).value))
         start_progress = None
         if resume and os.path.exists(self.progress_file):
             with open(self.progress_file) as f:
@@ -58,6 +61,11 @@ class GpsWaypointFollower(Node):
         self.create_subscription(Odometry, p('odom_topic', '/odom').value, self.on_odom, 10)
         self.cmd_pub = self.create_publisher(Twist, p('cmd_topic', '/nav/cmd_vel').value, 1)
         self.status_pub = self.create_publisher(String, '/nav/status', 1)
+        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.wp_pub = self.create_publisher(String, '/nav/waypoints', latched)
+        self.wp_pub.publish(String(data=json.dumps({
+            'route_file': self.route_file, 'radius': params.wp_radius,
+            'points': [[round(la, 7), round(lo, 7)] for la, lo in (route.enu.to_lla(*q) for q in route.p)]})))
         self.create_service(Trigger, '/nav/start', self.srv_start)
         self.create_service(Trigger, '/nav/stop', self.srv_stop)
         self.create_timer(0.1, self.tick)
@@ -127,6 +135,12 @@ class GpsWaypointFollower(Node):
               'heading_updates': f.n_offset_updates,
               'lat': None if lla is None else round(lla[0], 7),
               'lon': None if lla is None else round(lla[1], 7)}
+        wp = f.next_waypoint()
+        if wp is not None:
+            wlat, wlon = f.route.enu.to_lla(*wp[1])
+            st.update({'wp_idx': wp[0], 'wp_first': f.first_waypoint, 'wp_n': len(f.route.s0),
+                       'wp_lat': round(wlat, 7), 'wp_lon': round(wlon, 7),
+                       'wp_dist_m': round(wp[2], 1), 'wp_radius_m': f.P.wp_radius})
         self.status_pub.publish(String(data=json.dumps(st)))
 
 

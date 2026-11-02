@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>机器人控制台 - 登录</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login">
+<form onsubmit="location.href='/?token='+encodeURIComponent(this.t.value.trim()); return false;">
+  <h2>🤖 机器人控制台</h2>
+  <p>请输入访问令牌（在机器人 <code>~/.config/vln_robot_web/token</code> 里）</p>
+  <input name="t" type="password" autocomplete="current-password" placeholder="token" autofocus>
+  <button type="submit">进入</button>
+</form>
+</body>
+</html>

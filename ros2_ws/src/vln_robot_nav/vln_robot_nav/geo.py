@@ -41,6 +41,41 @@ def load_route_csv(path):
     return pts
 
 
+def simplify_waypoints(latlon, tol=1.0, max_spacing=25.0):
+    """Densely sampled route -> sparse waypoints joined by straight lines.
+
+    Douglas-Peucker with `tol` metres (keeps every corner), then long straight legs are split so
+    consecutive waypoints are at most `max_spacing` apart. First and last points are kept.
+    """
+    if len(latlon) < 3:
+        return list(latlon)
+    enu = LocalENU(*latlon[0])
+    p = np.array([enu.to_enu(la, lo) for la, lo in latlon], dtype=float)
+    keep = np.zeros(len(p), dtype=bool)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(p) - 1)]
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        a, d = p[i], p[j] - p[i]
+        n = np.hypot(*d)
+        w = p[i + 1:j] - a
+        dist = np.abs(d[0] * w[:, 1] - d[1] * w[:, 0]) / n if n > 1e-9 else np.hypot(w[:, 0], w[:, 1])
+        k = int(np.argmax(dist))
+        if dist[k] > tol:
+            k += i + 1
+            keep[k] = True
+            stack += [(i, k), (k, j)]
+    out = []
+    idx = np.flatnonzero(keep)
+    for i, j in zip(idx[:-1], idx[1:]):
+        m = max(1, int(math.ceil(np.hypot(*(p[j] - p[i])) / max_spacing)))
+        out += [p[i] + (p[j] - p[i]) * t / m for t in range(m)]
+    out.append(p[idx[-1]])
+    return [enu.to_lla(e, n) for e, n in out]
+
+
 class LoopRoute:
     """Closed polyline in ENU with arc-length parametrisation (s wraps modulo `length`)."""
 

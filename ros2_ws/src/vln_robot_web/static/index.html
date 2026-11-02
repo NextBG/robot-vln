@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>机器人控制台</title>
+<link rel="stylesheet" href="/static/leaflet/leaflet.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <span class="title">🤖 RoboMaster S1 · VLN</span>
+  <span id="conn" class="pill bad">未连接</span>
+  <span id="batt" class="pill">🔋 --</span>
+  <span id="wifi" class="pill">📶 --</span>
+  <span id="safety" class="pill">安全 --</span>
+  <span id="vlnpill" class="pill">VLN --</span>
+  <button class="armbtn" title="快捷键 T">🎮 遥控：关</button>
+  <button id="estop" class="estop">急停</button>
+</header>
+
+<main>
+  <section class="card cam">
+    <h3>相机 <select id="camq">
+      <option value="off">关闭</option>
+      <option value="low">低 320px 3fps</option>
+      <option value="mid" selected>中 640px 5fps</option>
+      <option value="high">高 640px 10fps</option>
+    </select></h3>
+    <div class="camwrap"><img id="cam" alt="camera"><div id="camnote" class="note">--</div></div>
+  </section>
+
+  <section class="card map">
+    <h3>GPS 地图 <span id="gpsinfo" class="sub">--</span>
+      <button id="follow" class="small on">跟随</button></h3>
+    <div id="map"></div>
+  </section>
+
+  <section class="card lidar">
+    <h3>激光雷达俯视 <select id="lrange">
+      <option value="2">2 m</option><option value="4" selected>4 m</option><option value="8">8 m</option>
+    </select> <label class="sub"><input type="checkbox" id="lidaron" checked> 回传</label></h3>
+    <canvas id="lidarcv"></canvas>
+  </section>
+
+  <section class="card ctrl">
+    <h3>遥控 <button class="armbtn" title="快捷键 T">🎮 遥控：关</button></h3>
+    <div class="ctrlwrap">
+      <div id="joy" class="joy"><div id="knob" class="knob"></div></div>
+      <div class="btns">
+        <button data-k="q" title="左平移">⇐</button><button data-k="w">▲</button><button data-k="e" title="右平移">⇒</button>
+        <button data-k="a" title="左转">⟲</button><button data-k="s">▼</button><button data-k="d" title="右转">⟳</button>
+      </div>
+    </div>
+    <div class="sliders">
+      <label>线速度 <input type="range" id="vmax" min="0.05" max="0.3" step="0.05" value="0.15"> <b id="vmaxv">0.15</b> m/s</label>
+      <label>角速度 <input type="range" id="wmax" min="0.1" max="0.8" step="0.1" value="0.5"> <b id="wmaxv">0.5</b> rad/s</label>
+    </div>
+    <div id="cmdinfo" class="sub">遥控默认关闭（防误触）。点“遥控：关”或按 T 开启 · W/S 前后，A/D 转向，Q/E 平移，空格 停止 · 松手即停</div>
+  </section>
+
+  <section class="card vlncard">
+    <h3>VLN 任务 <span id="vlnstate" class="pill">--</span></h3>
+    <table id="vlninfo"></table>
+    <form id="vlnform" class="vlnform">
+      <input id="vlntext" type="text" maxlength="500" placeholder="导航指令，例如：Walk forward and stop at the bench" autocomplete="off">
+      <button type="submit" class="go">发送</button>
+      <button type="button" id="vlnstop" class="stopbtn">停止任务</button>
+    </form>
+    <div class="sub">发送指令会自动启动 VLN 客户端；手动遥控或急停会取消当前任务。</div>
+  </section>
+
+  <section class="card status">
+    <h3>传感器状态</h3>
+    <table id="topics"></table>
+    <h3>驱动进程 <span class="sub">换电池后模块掉线点“重连”</span>
+      <button id="restartall" class="small">全部重连</button></h3>
+    <table id="modules"></table>
+    <h3>位姿 / 系统</h3>
+    <table id="info"></table>
+  </section>
+</main>
+
+<script src="/static/leaflet/leaflet.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

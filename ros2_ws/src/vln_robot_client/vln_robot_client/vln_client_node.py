@@ -75,7 +75,19 @@ class VlnClient(Node):
         self.create_subscription(Empty, '/vln/stop', self.on_stop, 1)
         self.cmd_pub = self.create_publisher(Twist, p('cmd_topic', '/vln/cmd_vel').value, 1)
         self.status_pub = self.create_publisher(String, '/vln/status', 10)
+        # machine-readable task state for the web dashboard (JSON, 1 Hz + on change)
+        self.state_pub = self.create_publisher(String, '/vln/state', 10)
+        self.state = 'idle'       # idle | waiting_image | waiting_depth | requesting | executing | done | stopped | error
+        self.state_msg = ''
+        self.last_error = None
+        self.last_reply = None
+        self.last_rtt = None
+        self.task_t0 = None
+        self.server_ok = None
+        self.server_info = None
         self.create_timer(0.1, self.control_step)
+        self.create_timer(1.0, self.publish_state)
+        threading.Thread(target=self.health_loop, daemon=True).start()
 
         self._thread = threading.Thread(target=self.planning_loop, daemon=True)
         self._thread.start()
@@ -121,18 +133,55 @@ class VlnClient(Node):
             self.reset = True
             self.idx = 0
             self.mode = self.goal = self.path = None
-        self.publish_status(f'start: {instruction}')
+            self.last_reply = None
+            self.last_error = None
+            self.task_t0 = time.time()
+        self.set_state('waiting_image', f'start: {instruction}')
 
-    def stop(self, reason):
+    def stop(self, reason, state='stopped'):
         with self.lock:
             self.active = False
             self.mode = self.goal = self.path = None
         self.cmd_pub.publish(Twist())
-        self.publish_status(f'stop: {reason}')
+        self.set_state(state, f'stop: {reason}')
 
     def publish_status(self, text):
         self.get_logger().info(text)
         self.status_pub.publish(String(data=text))
+
+    def set_state(self, state, text=None):
+        changed = state != self.state or (text and text != self.state_msg)
+        self.state = state
+        if text:
+            self.state_msg = text
+            self.publish_status(text)
+        if changed:
+            self.publish_state()
+
+    def publish_state(self):
+        with self.lock:
+            d = {'state': self.state, 'msg': self.state_msg, 'active': self.active,
+                 'instruction': self.instruction, 'idx': self.idx, 'mode': self.mode,
+                 'elapsed': round(time.time() - self.task_t0, 1) if self.task_t0 and self.active else None,
+                 'reply': self.last_reply, 'rtt': self.last_rtt, 'error': self.last_error,
+                 'server_url': self.server_url, 'server_ok': self.server_ok, 'server': self.server_info,
+                 'use_depth': self.use_depth, 't': time.time()}
+        self.state_pub.publish(String(data=json.dumps(d, ensure_ascii=False)))
+
+    def health_loop(self):
+        url = self.server_url.rsplit('/', 1)[0] + '/health'
+        while rclpy.ok():
+            try:
+                r = requests.get(url, timeout=3)
+                self.server_ok = r.ok
+                try:
+                    self.server_info = r.json()
+                except ValueError:
+                    self.server_info = None
+            except requests.RequestException as e:
+                self.server_ok = False
+                self.server_info = {'error': type(e).__name__}
+            time.sleep(5.0)
 
     # ---------------- planning (HTTP) ----------------
     def planning_loop(self):
@@ -148,24 +197,53 @@ class VlnClient(Node):
                     pose = min(self.odom_queue, key=lambda o: abs(o[0] - stamp))[1]
                     payload = {'reset': self.reset, 'idx': self.idx, 'instruction': self.instruction}
             if not ready:
+                with self.lock:
+                    waiting = self.active and self.mode is None
+                if waiting and self.state not in ('waiting_image', 'error'):
+                    self.set_state('waiting_image')
                 time.sleep(0.05)
                 continue
             if self.use_depth and depth is None:
                 self.get_logger().warn('waiting for depth image', throttle_duration_sec=2.0)
+                self.set_state('waiting_depth')
                 time.sleep(0.1)
                 continue
+            if self.mode is None:
+                self.set_state('requesting')
+            t_req = time.time()
             try:
                 reply = self.query_server(rgb, depth, payload)
             except Exception as e:  # noqa: BLE001 - keep the loop alive on network errors
                 self.get_logger().error(f'server request failed: {e}', throttle_duration_sec=2.0)
+                self.last_error = f'{type(e).__name__}: {e}'[:300]
+                with self.lock:
+                    self.mode = self.goal = self.path = None
                 self.cmd_pub.publish(Twist())
+                self.set_state('error')
                 time.sleep(0.5)
                 continue
+            self.last_rtt = round(time.time() - t_req, 3)
+            self.last_error = None
+            self.last_reply = self.summarize(reply)
             with self.lock:
                 self.reset = False
                 self.idx += 1
             self.handle_reply(reply, pose)
+            if self.active:
+                self.set_state('executing')
             time.sleep(max(0.0, self.request_period - (time.time() - t0)))
+
+    @staticmethod
+    def summarize(reply):
+        s = {k: reply[k] for k in ('discrete_action', 'pixel_goal', 'latency_s') if k in reply}
+        if 'trajectory' in reply:
+            traj = reply['trajectory']
+            s['traj_n'] = len(traj)
+            if traj:
+                s['traj_end'] = [round(float(v), 2) for v in traj[-1][:2]]
+        if isinstance(reply.get('depth'), dict):
+            s['depth'] = reply['depth']
+        return s
 
     def query_server(self, rgb, depth, payload):
         ok, jpg = cv2.imencode('.jpg', rgb, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
@@ -191,7 +269,7 @@ class VlnClient(Node):
             goal, stop = discrete_actions_to_goal(
                 start, actions, self.step_m, np.radians(self.turn_deg))
             if stop:
-                self.stop('model issued STOP (task finished)')
+                self.stop('model issued STOP (task finished)', state='done')
                 return
             with self.lock:
                 self.mode, self.goal, self.path = 'goal', goal, None

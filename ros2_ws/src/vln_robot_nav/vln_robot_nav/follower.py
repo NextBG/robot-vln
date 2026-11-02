@@ -33,6 +33,7 @@ class FollowerParams:
     heading_baseline = 25.0  # m of displacement per later heading-offset update
     heading_gain = 0.1     # low-pass weight of later updates (gyro drift is slow)
     goal_tol = 3.0         # m before the end of the route -> DONE
+    wp_radius = 3.0        # m, a waypoint counts as reached inside this radius (or once passed)
     search_back = 15.0
     search_fwd = 40.0
 
@@ -104,6 +105,37 @@ class RouteFollower:
     @property
     def progress(self):
         return 0.0 if self.s is None else self.s - self.s_start
+
+    def _vertex_after(self, s):
+        """(index, unwrapped arc length) of the first route vertex strictly after arc length s."""
+        r = self.route
+        base = math.floor(s / r.length) * r.length
+        k = int(np.searchsorted(r.s0, s - base, side='right'))
+        if k >= len(r.s0):
+            return 0, base + r.length
+        return k, base + r.s0[k]
+
+    @property
+    def first_waypoint(self):
+        return None if self.s_start is None else self._vertex_after(self.s_start)[0]
+
+    def next_waypoint(self):
+        """Next waypoint (route vertex) not yet reached: ahead of the current progress and outside
+        `wp_radius`. Returns (index, (e, n), distance_m); index -1 = route end (not a vertex)."""
+        if self.s is None or self.pos is None:
+            return None
+        r, end = self.route, self.s_start + self.route.length
+        k, sk = self._vertex_after(self.s)
+        while sk < end - 1e-6:
+            d = float(np.hypot(*(r.p[k] - self.pos)))
+            if d > self.P.wp_radius:
+                return k, r.p[k], d
+            k, sk = self._vertex_after(sk)
+        goal = r.point_at(end)
+        k_goal = int(np.argmin(np.hypot(*(r.p - goal).T)))
+        if np.hypot(*(r.p[k_goal] - goal)) > 1e-3:
+            k_goal = -1
+        return k_goal % len(r.s0) if k_goal >= 0 else -1, goal, float(np.hypot(*(goal - self.pos)))
 
     def step(self, t):
         """Returns (v, w) command. Call at >= 10 Hz."""

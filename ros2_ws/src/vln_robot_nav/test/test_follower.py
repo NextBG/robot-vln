@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from vln_robot_nav.follower import DONE, FAULT, FollowerParams, RouteFollower
-from vln_robot_nav.geo import LocalENU, LoopRoute, load_route_csv, pure_pursuit, wrap_angle
+from vln_robot_nav.geo import LocalENU, LoopRoute, load_route_csv, pure_pursuit, simplify_waypoints, wrap_angle
 
 ROUTE = os.path.join(os.path.dirname(__file__), '..', 'routes', 'dishui_lake.csv')
 
@@ -88,9 +88,47 @@ def test_refuses_far_start():
 @pytest.mark.skipif(not os.path.exists(ROUTE), reason='route file missing')
 @pytest.mark.parametrize('seed', [1, 2])
 def test_dishui_lake_full_loop(seed):
-    r = LoopRoute(load_route_csv(ROUTE))
-    assert 8000 < r.length < 11000
+    dense = LoopRoute(load_route_csv(ROUTE))
+    r = LoopRoute(simplify_waypoints(load_route_csv(ROUTE)))   # what gps_waypoint_follower uses
+    assert 8000 < r.length < 11000 and abs(r.length - dense.length) < 0.01 * dense.length
+    assert len(r.p) < len(dense.p) / 3
     f, worst, end = simulate(r, gps_std=2.5, seed=seed)
     assert f.state == DONE, f'{f.state} {f.reason} at {f.progress:.0f}/{r.length:.0f} m'
     assert worst < 6.0, worst
     assert np.hypot(*(np.array(end) - r.point_at(0.0))) < 8.0
+
+
+def dense_square(side=60.0, step=1.0):
+    enu = LocalENU(30.9, 121.9)
+    corners = [(0, 0), (side, 0), (side, side), (0, side), (0, 0)]
+    pts = []
+    for (ax, ay), (bx, by) in zip(corners, corners[1:]):
+        n = int(round(math.hypot(bx - ax, by - ay) / step))
+        pts += [(ax + (bx - ax) * t / n, ay + (by - ay) * t / n) for t in range(n)]
+    pts.append(corners[-1])
+    return [enu.to_lla(e, n) for e, n in pts]
+
+
+def test_simplify_waypoints():
+    wps = simplify_waypoints(dense_square(60.0), tol=0.5, max_spacing=25.0)
+    r = LoopRoute(wps)
+    assert abs(r.length - 240.0) < 0.05
+    assert len(wps) == 4 * 3 + 1                    # 60 m sides split into 3 legs of 20 m
+    assert r.seg_len.max() <= 25.0 + 1e-6
+    for c in [(0, 0), (60, 0), (60, 60), (0, 60)]:   # every corner is kept
+        assert np.min(np.hypot(*(r.p - np.array(c)).T)) < 0.05
+
+
+def test_next_waypoint():
+    r = LoopRoute(simplify_waypoints(dense_square(60.0), tol=0.5, max_spacing=25.0))
+    f = RouteFollower(r)
+    assert f.next_waypoint() is None
+    f.pos, f.s, f.s_start = np.array([5.0, 0.5]), 5.0, 0.0
+    k, xy, d = f.next_waypoint()
+    assert k == 1 and np.allclose(xy, (20.0, 0.0)) and abs(d - math.hypot(15, 0.5)) < 1e-6
+    assert f.first_waypoint == 1
+    f.pos, f.s = np.array([18.0, 0.0]), 18.0       # inside wp_radius of #1 -> already the next one
+    assert f.next_waypoint()[0] == 2
+    f.pos, f.s = np.array([0.0, 2.0]), 238.0       # almost done -> route end (= vertex 0)
+    k, xy, _ = f.next_waypoint()
+    assert k == 0 and np.allclose(xy, (0.0, 0.0))

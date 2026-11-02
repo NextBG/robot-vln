@@ -6,12 +6,17 @@
   (base_link frame: 0 < x < stop_distance, |y| < half_width, z_min < z < z_max).
 * Commands older than `cmd_timeout` -> zero (protects against a dead client / Wi-Fi drop).
 * Speeds are clamped to max_v / max_w.
+* /safety/estop (std_msgs/Bool, latched): true -> zero output regardless of the command source.
+* /safety/status (std_msgs/String, JSON, 5 Hz): blocked / lidar_ok / estop / output command.
 """
+import json
 import time
 
 import numpy as np
 import rclpy
 from geometry_msgs.msg import Twist
+from rclpy.qos import DurabilityPolicy, QoSProfile
+from std_msgs.msg import Bool, String
 from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -49,7 +54,28 @@ class SafetyStop(Node):
                                  self.on_cloud, qos_profile_sensor_data)
         self.create_subscription(Twist, p('cmd_in', '/vln/cmd_vel').value, self.on_cmd, 1)
         self.pub = self.create_publisher(Twist, p('cmd_out', '/cmd_vel').value, 1)
+        self.estop = False
+        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.create_subscription(Bool, '/safety/estop', self.on_estop, latched)
+        self.status_pub = self.create_publisher(String, '/safety/status', 1)
+        self.last_out = Twist()
         self.create_timer(0.05, self.tick)
+        self.create_timer(0.2, self.publish_status)
+
+    def on_estop(self, msg):
+        if msg.data != self.estop:
+            self.get_logger().warn('E-STOP engaged' if msg.data else 'E-STOP released')
+        self.estop = msg.data
+
+    def publish_status(self):
+        now = time.time()
+        o = self.last_out
+        self.status_pub.publish(String(data=json.dumps({
+            'blocked': self.blocked, 'estop': self.estop,
+            'lidar_ok': (now - self.last_cloud < self.cloud_timeout) or not self.require_lidar,
+            'cmd_age': round(min(now - self.last_cmd_time, 999.0), 2),
+            'out': [round(o.linear.x, 3), round(o.linear.y, 3), round(o.angular.z, 3)],
+            'max_v': self.max_v, 'max_w': self.max_w})))
 
     def on_cloud(self, msg):
         try:
@@ -77,7 +103,7 @@ class SafetyStop(Node):
     def tick(self):
         now = time.time()
         out = Twist()
-        if now - self.last_cmd_time < self.cmd_timeout:
+        if now - self.last_cmd_time < self.cmd_timeout and not self.estop:
             lidar_ok = (now - self.last_cloud < self.cloud_timeout) or not self.require_lidar
             v = float(np.clip(self.last_cmd.linear.x, -self.max_v, self.max_v))
             if v > 0.0 and (self.blocked or not lidar_ok):
@@ -85,6 +111,7 @@ class SafetyStop(Node):
             out.linear.x = v
             out.linear.y = float(np.clip(self.last_cmd.linear.y, -self.max_v, self.max_v))
             out.angular.z = float(np.clip(self.last_cmd.angular.z, -self.max_w, self.max_w))
+        self.last_out = out
         self.pub.publish(out)
 
 

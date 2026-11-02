@@ -45,6 +45,8 @@ ros2_ws/
   can.repos      可选：S1 内部 CAN 方案
   src/vln_robot_bringup/   整车启动（底盘+相机+雷达+GNSS+TF）
   src/vln_robot_client/    VLN HTTP 客户端、雷达->深度投影、安全停障
+  src/vln_robot_nav/       GPS 路径点循迹（滴水湖环湖）
+  src/vln_robot_web/       网页监控/遥控台、驱动进程托管与重连
 scripts/onboard/ 车载电脑一键安装脚本（00~05）
 server/          GPU 端 InternVLA-N1 HTTP 服务封装
 tools/           独立测试脚本（S1 轮速测试等）
@@ -62,6 +64,15 @@ ros2 topic pub --once /vln/instruction std_msgs/String "data: 'Go forward and st
 ```
 
 GPU 服务器端见 [docs/setup/gpu-server.md](docs/setup/gpu-server.md)。
+
+**网页监控 / 遥控台**（GPS 卫星地图 + 路径点、传感器状态、相机/雷达画面、遥控、急停、模块重连、VLN 任务、GPU 服务器状态）：
+
+```bash
+ros2 launch vln_robot_web web.launch.py      # 浏览器打开 http://<机器人IP>:8080/
+bash scripts/onboard/install_web_service.sh   # 可选：开机自启
+```
+
+详见 [docs/web/dashboard.md](docs/web/dashboard.md)。
 
 GPS 环湖循迹（滴水湖，凯悦嘉轩往返）见 [docs/navigation/dishui-lake-loop.md](docs/navigation/dishui-lake-loop.md)。
 
@@ -81,4 +92,5 @@ GPS 环湖循迹（滴水湖，凯悦嘉轩往返）见 [docs/navigation/dishui-
 4. 🔶 GPU 服务器部署 InternVLA-N1（✅ 推理服务已跑通，0.2–0.5 s/步；✅ LiDAR+单目深度补全；✅ 修复 S1 显存溢出），先跑仿真评测（VLN-CE R2R）对齐论文指标
 5. 🔶 真机闭环：`vln_client` ↔ 服务器（✅ M11→GPU SSH 隧道；⬜ 不接轮子空跑；⬜ 低速实跑）
 6. 🔶 GPS 环湖循迹（vln_robot_nav，已完成仿真，待实地测试）
-7. ⬜ 可选：FAST-LIO2 里程计替代轮速计；StreamVLN / JanusVLN 对比实验
+7. ✅ 网页监控/遥控台（卫星地图 + 路径点、遥控、急停、模块重连、VLN 面板）
+8. ⬜ 可选：FAST-LIO2 里程计替代轮速计；StreamVLN / JanusVLN 对比实验

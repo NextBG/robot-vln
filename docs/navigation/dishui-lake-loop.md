@@ -24,6 +24,7 @@ AMAP_KEY=xxxx python tools/amap_route.py --help   # 可用 --start 指定其他�
 - **ALIGN（对准）**：直行约 10 m，比较 GPS 位移方向和里程计位移方向，得到航向偏差。S1 的 IMU 没有磁力计，所以航向要靠这一步估计。之后每走 25 m 用低通滤波（增益 0.1）更新一次。
 - **位置**：里程计的增量转到 ENU 坐标系，再用 GPS 修正（增益 0.25）。
 - **控制**：纯追踪（pure pursuit），前视距离 4 m。目标点偏离超过 60° 时原地转向。
+- **路径点**：高德给出的密集折线（约 5 m 一个点，1844 点）先用 Douglas-Peucker 简化（容差 `wp_simplify_tol` = 1 m），再把超过 `wp_max_spacing` = 25 m 的长边切开，得到约 453 个路径点，相邻点之间按直线走。下一路径点是当前进度前方第一个距离机器人超过 `wp_radius` = 3 m 的点。简化后的路线发布在锁存话题 `/nav/waypoints`；`/nav/status` 中带有 `wp_idx`、`wp_lat`/`wp_lon`、`wp_dist_m`、`wp_radius_m`，网页地图用这些数据画出路径点和到达圆（见 [docs/web/dashboard.md](../web/dashboard.md)）。
 - **进度**：沿路线的里程 s 只增不减，搜索窗口为 [-15, +40] m，并截止在路线终点。这样往返重叠的连接段不会选错方向。
 - **保护**：
   - 起点离路线超过 25 m，或横向偏差超过 12 m，进入 FAULT
@@ -35,7 +36,7 @@ AMAP_KEY=xxxx python tools/amap_route.py --help   # 可用 --start 指定其他�
 
 ```bash
 source ~/robot-vln/scripts/onboard/ros_env.sh
-python3 -m pytest -p no:anyio ros2_ws/src/vln_robot_nav/test     # 7 个测试，含 2 次整圈仿真
+python3 -m pytest -p no:anyio ros2_ws/src/vln_robot_nav/test     # 9 个测试，含 2 次整圈仿真
 ros2 launch vln_robot_nav gps_loop.launch.py sim:=true autostart:=true time_scale:=20
 ros2 topic echo /nav/status
 ```

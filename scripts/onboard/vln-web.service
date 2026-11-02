@@ -1,0 +1,14 @@
+[Unit]
+Description=VLN robot bringup + safety_stop + web dashboard (port 8080)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash -c 'source %h/robot-vln/scripts/onboard/ros_env.sh && source %h/robot-vln/ros2_ws/install/setup.bash && exec ros2 launch vln_robot_web web.launch.py'
+KillSignal=SIGINT
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

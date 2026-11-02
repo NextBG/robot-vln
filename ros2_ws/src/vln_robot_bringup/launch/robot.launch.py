@@ -23,8 +23,9 @@ from launch_ros.actions import Node
 PKG = 'vln_robot_bringup'
 
 
-def _static_tf(parent, child, p):
+def _static_tf(parent, child, p, condition=None):
     return Node(
+        condition=condition,
         package='tf2_ros', executable='static_transform_publisher',
         name=f'tf_{parent}_to_{child}',
         arguments=[
@@ -56,6 +57,11 @@ def generate_launch_description():
             # Modes: OFF=0, ON=1, ON_DEMAND=2, DISABLED=-1
             'video': '-1',
             'audio': '-1',
+            # cmd_vel -> per-wheel rpm instead of the firmware chassis-twist mode. In twist mode the S1
+            # closes a yaw loop on its gyro, so the wheels spin when the robot is picked up / tilted.
+            'chassis_twist_to_wheel_speeds': 'true',
+            # firmware stops the wheels if no command arrives for this long (safety_stop sends 20 Hz)
+            'chassis_timeout': '0.5',
         }.items(),
         condition=IfCondition(use_chassis))
 
@@ -92,8 +98,10 @@ def generate_launch_description():
         parameters=[os.path.join(cfg, 'gnss.yaml')],
         condition=IfCondition(use_gnss))
 
-    tfs = [_static_tf('base_link', name, pose) for name, pose in extr.items()]
+    use_tf = IfCondition(LaunchConfiguration('use_tf'))
+    tfs = [_static_tf('base_link', name, pose, use_tf) for name, pose in extr.items()]
     tfs.append(Node(
+        condition=use_tf,
         package='tf2_ros', executable='static_transform_publisher', name='tf_camera_optical',
         arguments=['--roll', str(-math.pi / 2), '--yaw', str(-math.pi / 2),
                    '--frame-id', 'camera_link', '--child-frame-id', 'camera_optical_frame']))
@@ -105,6 +113,7 @@ def generate_launch_description():
                               description='wide (full sensor, ~66 deg HFOV) or usb_cam (640x480 crop, ~50 deg)'),
         DeclareLaunchArgument('use_lidar', default_value='true'),
         DeclareLaunchArgument('use_gnss', default_value='true'),
+        DeclareLaunchArgument('use_tf', default_value='true', description='static TFs base_link -> sensors'),
         DeclareLaunchArgument('s1_conn_type', default_value='rndis',
                               description='rndis (USB cable to intelligent controller), ap or sta'),
         DeclareLaunchArgument('s1_serial_number', default_value=''),
