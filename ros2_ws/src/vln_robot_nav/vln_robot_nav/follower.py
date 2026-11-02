@@ -145,8 +145,16 @@ class RouteFollower:
             k_goal = -1
         return k_goal % r.n_wp if k_goal >= 0 else -1, goal, float(np.hypot(*(goal - self.pos)))
 
-    def step(self, t):
-        """Returns (v, w) command. Call at >= 10 Hz."""
+    def route_point_ahead(self, ahead):
+        """ENU point `ahead` metres further along the route (clamped to the end), or None."""
+        if self.s is None:
+            return None
+        return self.route.point_at(min(self.s + ahead, self.end))
+
+    def step(self, t, local_target=None):
+        """Returns (v, w) command. Call at >= 10 Hz.
+        local_target: ENU point from a local planner (CityWalker) to steer at instead of the route
+        lookahead point, or 'hold' to stand still; route progress / safety checks are unchanged."""
         P = self.P
         if self.state in (DONE, FAULT):
             return 0.0, 0.0
@@ -197,7 +205,9 @@ class RouteFollower:
             return P.align_v, 0.0
 
         self.state = FOLLOW
-        target = self.route.point_at(min(self.s + P.lookahead, end))
+        if isinstance(local_target, str):
+            return 0.0, 0.0
+        target = self.route.point_at(min(self.s + P.lookahead, end)) if local_target is None else local_target
         alpha, k = pure_pursuit(self.pos, self.yaw, target)
         if abs(alpha) > P.turn_in_place:
             return 0.0, math.copysign(P.max_w, alpha)

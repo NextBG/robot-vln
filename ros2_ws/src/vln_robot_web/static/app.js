@@ -225,6 +225,16 @@ function drawLidar() {
   ctx.fillText(`${Z_HI} m`, lx + lw + 3 * dpr, ly + 8 * dpr);
   ctx.fillText(`${((Z_LO + Z_HI) / 2).toFixed(1)} m`, lx + lw + 3 * dpr, ly + lh / 2 + 4 * dpr);
   ctx.fillText(`${Z_LO} m`, lx + lw + 3 * dpr, ly + lh);
+  // CityWalker local plan (base_link, metres), magenta
+  const cwp = st && st.nav && st.nav.cw && st.nav.cw.path;
+  if (cwp && cwp.length) {
+    ctx.strokeStyle = '#ff4fd8'; ctx.fillStyle = '#ff4fd8'; ctx.lineWidth = 2.5 * dpr;
+    ctx.beginPath(); ctx.moveTo(c, c);
+    cwp.forEach(([x, y]) => ctx.lineTo(c - y * s, c - x * s));
+    ctx.stroke();
+    cwp.forEach(([x, y]) => { ctx.beginPath(); ctx.arc(c - y * s, c - x * s, 3.5 * dpr, 0, 2 * Math.PI); ctx.fill(); });
+    ctx.lineWidth = dpr;
+  }
   // robot footprint (S1 ~0.32 x 0.24 m), forward = up
   ctx.fillStyle = '#4a90d9'; ctx.fillRect(c - 0.12 * s, c - 0.16 * s, 0.24 * s, 0.32 * s);
   ctx.beginPath(); ctx.moveTo(c, c - 0.28 * s); ctx.lineTo(c - 0.07 * s, c - 0.17 * s); ctx.lineTo(c + 0.07 * s, c - 0.17 * s);
@@ -372,7 +382,7 @@ function navReq() {
   return {
     mode: $('navmode').value, base: $('navbase').value, start: NT.start, end: NT.end, points: NT.points,
     reverse: $('navrev').checked, loop: $('navloop').checked, radius: +$('navradius').value,
-    max_v: +$('navv').value, spacing: +$('navspacing').value, tol: +$('navtol').value,
+    max_v: +$('navv').value, spacing: +$('navspacing').value, tol: +$('navtol').value, planner: $('navplanner').value,
   };
 }
 function drawPreview() {
@@ -459,7 +469,7 @@ $('navundo').onclick = () => {
 };
 $('navclear').onclick = () => { NT.start = NT.end = null; NT.points = []; NT.pick = null; navFormChanged(); };
 function navSliderLabels() { NAV_SLIDERS.forEach((id) => { $(id + 'v').textContent = $(id).value; }); }
-['navmode', 'navbase', 'navrev', 'navloop', ...NAV_SLIDERS].forEach((id) => {
+['navmode', 'navbase', 'navrev', 'navloop', 'navplanner', ...NAV_SLIDERS].forEach((id) => {
   $(id).addEventListener(NAV_SLIDERS.includes(id) ? 'input' : 'change', navFormChanged);
 });
 $('navpreview').onclick = async () => {
@@ -497,8 +507,8 @@ fetch('/api/nav/routes').then((r) => r.json()).then((d) => {
     NT.start = q.start || null; NT.end = q.end || null; NT.points = q.points || [];
     $('navrev').checked = !!q.reverse; $('navloop').checked = !!q.loop;
     $('navradius').value = q.radius ?? 3; $('navv').value = q.max_v ?? 0.3; $('navspacing').value = q.spacing ?? 25;
-        $('navtol').value = q.tol ?? 1;
-      }
+    $('navtol').value = q.tol ?? 1; $('navplanner').value = q.planner || 'gps';
+  }
   const mode = $('navmode').value;
   $('navbasel').style.display = mode === 'route' ? '' : 'none';
   $('navrevl').style.display = mode === 'route' ? '' : 'none';
@@ -531,12 +541,18 @@ function renderNav(st) {
   if (task) {
     rows.push(['任务', `${MODE[task.mode] || task.mode}${task.base ? ' · ' + esc(task.base) : ''}${task.reverse ? ' · 反向' : ''}`
       + ` · ${task.n} 点 · ${(task.length_m / 1000).toFixed(2)} km · ${task.closed ? '闭环' : '单程'}`
-      + ` · 半径 ${task.radius} m · 限速 ${task.max_v} m/s`]);
+      + ` · 半径 ${task.radius} m · 限速 ${task.max_v} m/s · ${task.planner === 'citywalker' ? 'CityWalker' : 'GPS 追踪'}`]);
   }
   if (nav) {
     const pct = nav.route_m ? Math.min(100, (100 * nav.progress_m) / nav.route_m).toFixed(0) : '--';
     rows.push(['进度', `${fmt(nav.progress_m, 0)} / ${fmt(nav.route_m, 0)} m（${pct}%）· 偏离 ${fmt(nav.xte_m, 1)} m`]);
     if (nav.wp_idx != null) rows.push(['下一点', `${nav.wp_idx < 0 ? '终点' : '#' + nav.wp_idx} / ${nav.wp_n} · ${fmt(nav.wp_dist_m, 1)} m`]);
+    const cw = nav.cw;
+    if (cw) {
+      const srv = cw.ok === null ? '未请求' : cw.ok ? `正常 ${cw.rtt_ms ?? '--'} ms（推理 ${fmt(cw.infer_ms, 0)} ms）` : `<span class="bad">错误</span> ${esc(cw.err)}`;
+      rows.push(['CityWalker', `${cw.active ? '<b>规划中</b>' : 'GPS 追踪（回退）'} · ${srv} · 历史帧 ${cw.frames}/5`
+        + (cw.arrive != null ? ` · 到达概率 ${fmt(cw.arrive, 2)}` : '') + ` · ${cw.n} 次/${cw.n_err} 错`]);
+    }
     if (nav.reason) rows.push(['原因', esc(nav.reason)]);
   }
   if (st.nav_msg) rows.push(['消息', esc(st.nav_msg)]);

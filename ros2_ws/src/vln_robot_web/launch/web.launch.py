@@ -3,7 +3,7 @@
     ros2 launch vln_robot_web web.launch.py                    # everything
     ros2 launch vln_robot_web web.launch.py with_robot:=false  # drivers already running elsewhere
     ros2 launch vln_robot_web web.launch.py \\
-        vln_tunnel:="ssh -N -o ServerAliveInterval=15 -o ExitOnForwardFailure=yes -L 5801:127.0.0.1:5801 -p <port> root@<gpu-host>"
+        vln_tunnel:="ssh -N -o ServerAliveInterval=15 -o ExitOnForwardFailure=yes -L 5801:127.0.0.1:5801 -L 5802:127.0.0.1:5802 -p <port> root@<gpu-host>"
 
 With with_robot:=true the web node starts every driver (chassis, camera, lidar, gnss, tf) as its own
 child process, so a single driver can be restarted from the page (e.g. after a battery swap).
@@ -27,7 +27,9 @@ def generate_launch_description():
         DeclareLaunchArgument('max_w', default_value='0.8', description='rad/s'),
         DeclareLaunchArgument('vln_server_url', default_value='http://127.0.0.1:5801/eval_dual'),
         DeclareLaunchArgument('vln_tunnel', default_value='',
-                              description='optional command that forwards the GPU server to localhost'),
+                              description='optional command that forwards the GPU server to localhost '
+                                          '(add -L 5802:127.0.0.1:5802 for the CityWalker planner)'),
+        DeclareLaunchArgument('cw_server_url', default_value='http://127.0.0.1:5802/citywalker'),
         DeclareLaunchArgument('vln_use_depth', default_value='true'),
         Node(package='vln_robot_client', executable='safety_stop', name='safety_stop', output='screen',
              parameters=[{'max_v': lc('max_v'), 'max_w': lc('max_w')}]),
@@ -36,6 +38,7 @@ def generate_launch_description():
                           'drivers': ParameterValue(lc('with_robot'), value_type=bool),
                           'driver_modules': modules,
                           'vln_server_url': lc('vln_server_url'),
+                          'cw_server_url': lc('cw_server_url'),
                           'vln_tunnel': ParameterValue(lc('vln_tunnel'), value_type=str),
                           'vln_use_depth': ParameterValue(lc('vln_use_depth'), value_type=bool)}]),
     ])

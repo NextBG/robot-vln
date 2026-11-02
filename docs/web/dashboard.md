@@ -8,7 +8,7 @@
 source ~/robot-vln/scripts/onboard/ros_env.sh && source ~/robot-vln/ros2_ws/install/setup.bash
 # 带 GPU 服务器隧道（VLN 需要）：
 ros2 launch vln_robot_web web.launch.py \
-  vln_tunnel:="ssh -N -o BatchMode=yes -o ServerAliveInterval=15 -o ExitOnForwardFailure=yes -L 5801:127.0.0.1:5801 -p <端口> root@<GPU服务器>"
+  vln_tunnel:="ssh -N -o BatchMode=yes -o ServerAliveInterval=15 -o ExitOnForwardFailure=yes -L 5801:127.0.0.1:5801 -L 5802:127.0.0.1:5802 -p <端口> root@<GPU服务器>"
 # 开机自启（systemd 用户服务）：
 bash scripts/onboard/install_web_service.sh
 ```
@@ -20,6 +20,7 @@ bash scripts/onboard/install_web_service.sh
 | `port` | 8080 | HTTP 端口 |
 | `max_v` / `max_w` | 0.3 / 0.8 | 遥控和 safety_stop 的限速，单位分别为 m/s 和 rad/s |
 | `vln_server_url` | `http://127.0.0.1:5801/eval_dual` | InternVLA-N1 服务地址 |
+| `cw_server_url` | `http://127.0.0.1:5802/citywalker` | CityWalker 局部规划服务地址（隧道需加 `-L 5802:...`） |
 | `vln_tunnel` | 空 | 连到 GPU 服务器的 SSH 隧道命令，由网页节点托管，断开后自动重连 |
 | `vln_use_depth` | true | VLN 请求是否附带雷达深度 |
 
@@ -60,6 +61,9 @@ bash scripts/onboard/install_web_service.sh
     - 高德步行规划：起点（默认当前位置）到终点，调用高德 Web 服务步行接口。Key 放在机器人的 `~/.config/vln_robot_web/amap_key`（或环境变量 `AMAP_KEY`），**不要提交到仓库**。
   - 可选“闭环”（回到起点）、到点判定半径（1–30 m；终点仍按 ≤3 m 判定到达）、速度（不超过 `max_v`）、路径点密度：“路径点间距”（2–100 m，直路上每隔多远一个点）和“弯道容差”（0.2–5 m，越小弯道点越密）。它们以 `wp_max_spacing` / `wp_simplify_tol` 参数传给跟随器，所以实际路径点与预览一致。
   - 点“选起点 / 选终点 / 加途经点”，再在地图上点击选点（自动把 GCJ-02 坐标转回 WGS-84）。
+  - **局部规划**：
+    - “GPS 直线追踪”：沿路线折线纯追踪（前视 4 m）。
+    - “CityWalker 视觉规划”：GPU 服务器上的 CityWalker 根据相机画面和前方约 12 m 的路线点规划局部轨迹，雷达俯视图里用品红色画出。服务器无响应时自动退回 GPS 追踪。详见 [docs/vln/citywalker.md](../vln/citywalker.md)。
   - **预览**：橙色折线 + 编号路径点 + 半透明的判定半径圆，同时显示总长、点数和预计用时。
   - **启动 / 暂停 / 继续 / 结束任务**：启动前需要确认。任务保存在 `~/.ros/vln_robot_web/nav_task.{json,csv}`，进度保存在 `nav_progress.json`，网页重启或换电池后点“继续”会从上次的进度接着走。
   - `gps_waypoint_follower` 作为 `nav` 模块由网页托管：启动时总是暂停状态，就绪后网页再调用 `/nav/start`；崩溃后自动重启，但也只恢复到暂停状态，不会自己动起来。
