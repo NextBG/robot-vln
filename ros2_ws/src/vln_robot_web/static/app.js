@@ -350,13 +350,14 @@ $('vlnstop').onclick = () => post('/api/vln/stop');
 
 // ---------------------------------------------------------------- GPS navigation task
 const NT = { pick: null, start: null, end: null, points: [], preview: null, routes: [], amap: false, timer: null };
+const NAV_SLIDERS = ['navradius', 'navv', 'navspacing', 'navtol'];
 const pvLayer = L.layerGroup().addTo(map);
 const pickLayer = L.layerGroup().addTo(map);
 function navReq() {
   return {
     mode: $('navmode').value, base: $('navbase').value, start: NT.start, end: NT.end, points: NT.points,
     reverse: $('navrev').checked, loop: $('navloop').checked, radius: +$('navradius').value,
-    max_v: +$('navv').value, spacing: +$('navspacing').value,
+    max_v: +$('navv').value, spacing: +$('navspacing').value, tol: +$('navtol').value,
   };
 }
 function drawPreview() {
@@ -395,8 +396,7 @@ function navFormChanged() {
   $('navbasel').style.display = mode === 'route' ? '' : 'none';
   $('navrevl').style.display = mode === 'route' ? '' : 'none';
   $('pickpts').style.display = mode === 'manual' ? '' : 'none';
-  $('navradiusv').textContent = $('navradius').value;
-  $('navvv').textContent = $('navv').value;
+  navSliderLabels();
   renderPickInfo();
   clearTimeout(NT.timer);
   if (mode === 'amap') { NT.preview = null; drawPreview(); showPreviewInfo(null, '高德规划需点“预览”'); return; }
@@ -443,8 +443,9 @@ $('navundo').onclick = () => {
   navFormChanged();
 };
 $('navclear').onclick = () => { NT.start = NT.end = null; NT.points = []; NT.pick = null; navFormChanged(); };
-['navmode', 'navbase', 'navrev', 'navloop', 'navradius', 'navv', 'navspacing'].forEach((id) => {
-  $(id).addEventListener(id === 'navradius' || id === 'navv' ? 'input' : 'change', navFormChanged);
+function navSliderLabels() { NAV_SLIDERS.forEach((id) => { $(id + 'v').textContent = $(id).value; }); }
+['navmode', 'navbase', 'navrev', 'navloop', ...NAV_SLIDERS].forEach((id) => {
+  $(id).addEventListener(NAV_SLIDERS.includes(id) ? 'input' : 'change', navFormChanged);
 });
 $('navpreview').onclick = async () => {
   const r = await previewTask();
@@ -481,12 +482,13 @@ fetch('/api/nav/routes').then((r) => r.json()).then((d) => {
     NT.start = q.start || null; NT.end = q.end || null; NT.points = q.points || [];
     $('navrev').checked = !!q.reverse; $('navloop').checked = !!q.loop;
     $('navradius').value = q.radius ?? 3; $('navv').value = q.max_v ?? 0.3; $('navspacing').value = q.spacing ?? 25;
-  }
+        $('navtol').value = q.tol ?? 1;
+      }
   const mode = $('navmode').value;
   $('navbasel').style.display = mode === 'route' ? '' : 'none';
   $('navrevl').style.display = mode === 'route' ? '' : 'none';
   $('pickpts').style.display = mode === 'manual' ? '' : 'none';
-  $('navradiusv').textContent = $('navradius').value; $('navvv').textContent = $('navv').value;
+  navSliderLabels();
   renderPickInfo(); drawPreview();
 }).catch(() => {});
 

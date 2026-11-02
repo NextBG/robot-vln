@@ -410,7 +410,8 @@ class WebNode(Node):
         task = {'mode': mode, 'start': req.get('start'), 'end': req.get('end'),
                 'points': (req.get('points') or [])[:200], 'reverse': bool(req.get('reverse')),
                 'loop': bool(req.get('loop')),
-                'max_spacing': max(3.0, min(100.0, float(req.get('spacing', 25.0))))}
+                'max_spacing': max(2.0, min(100.0, float(req.get('spacing', 25.0)))),
+                'simplify_tol': max(0.2, min(5.0, float(req.get('tol', 1.0))))}
         base = self.nav_base(req.get('base', 'dishui_lake')) if mode == 'route' else None
         walker = None
         if mode == 'amap':
@@ -425,7 +426,7 @@ class WebNode(Node):
         radius = max(1.0, min(30.0, float(req.get('radius', self.wp_radius))))
         max_v = max(0.1, min(self.max_v, float(req.get('max_v', self.max_v))))
         clean = dict(task, base=req.get('base') if mode == 'route' else None, radius=radius, max_v=max_v,
-                     spacing=task['max_spacing'])
+                     spacing=task['max_spacing'], tol=task['simplify_tol'])
         res.update(radius=radius, max_v=max_v, eta_s=round(res['length_m'] / max(0.05, 0.85 * max_v)))
         return clean, res
 
@@ -454,7 +455,8 @@ class WebNode(Node):
                        ('cmd_topic', self.nav_cmd_topic), ('wp_radius', f'{q["radius"]:.2f}'),
                        ('goal_tol', f'{min(3.0, q["radius"]):.2f}'),
                        ('max_v', f'{v:.2f}'), ('min_v', f'{min(0.15, v):.2f}'), ('align_v', f'{min(0.3, v):.2f}'),
-                       ('wp_max_spacing', f'{q["spacing"]:.2f}'), ('autostart', 'false'), ('resume', 'true'),
+                       ('wp_max_spacing', f'{q["spacing"]:.2f}'), ('wp_simplify_tol', f'{q.get("tol", 1.0):.2f}'),
+                       ('autostart', 'false'), ('resume', 'true'),
                        ('progress_file', self.nav_progress)):
             cmd += ['-p', f'{k}:={val}']
         self.sup.modules['nav'].cmd = cmd
