@@ -616,8 +616,13 @@ class WebNode(Node):
             xyz = xyz @ R.T + t
         m = (xyz[:, 2] > 0.05) & (xyz[:, 2] < 1.5) & (np.abs(xyz[:, 0]) < self.lidar_range) \
             & (np.abs(xyz[:, 1]) < self.lidar_range)
-        cells = np.unique(np.round(xyz[m, :2] / self.lidar_grid).astype(np.int32), axis=0)
-        self.lidar_xy = np.round(cells * self.lidar_grid * 100).astype(np.int32).flatten().tolist()
+        xyz = xyz[m]
+        xyz = xyz[np.argsort(-xyz[:, 2])]  # unique() keeps the first hit -> highest point per cell
+        cells, first = np.unique(np.round(xyz[:, :2] / self.lidar_grid).astype(np.int32), axis=0, return_index=True)
+        out = np.empty((len(cells), 3), np.int32)
+        out[:, :2] = np.round(cells * self.lidar_grid * 100)
+        out[:, 2] = np.round(xyz[first, 2] * 100)
+        self.lidar_xy = out.flatten().tolist()   # x, y, z (cm, base_link) per grid cell
         self.lidar_seq += 1
 
     def sys_loop(self):
@@ -856,7 +861,7 @@ def make_handler(node: WebNode):
                     st = node.state()
                     if want_lidar and node.lidar_seq != last_lidar:
                         last_lidar = node.lidar_seq
-                        st['lidar'] = node.lidar_xy
+                        st['lidar3'] = node.lidar_xy
                     self.wfile.write(f'data: {json.dumps(st, separators=(",", ":"))}\n\n'.encode())
                     self.wfile.flush()
                     time.sleep(period)

@@ -189,7 +189,11 @@ function updateMap(st) {
 
 // ---------------------------------------------------------------- lidar top view
 const cv = $('lidarcv'), ctx = cv.getContext('2d');
-let lidarPts = [];
+let lidarPts = [];   // x, y, z in cm (base_link), highest point per grid cell
+// height colour map: blue (low, curbs) -> cyan -> green -> yellow -> red (>= Z_HI, head height)
+const Z_LO = 0.05, Z_HI = 1.5, N_COL = 24;
+const Z_COLORS = Array.from({ length: N_COL }, (_, i) => `hsl(${240 - 240 * i / (N_COL - 1)},95%,58%)`);
+const zBin = (z) => Math.max(0, Math.min(N_COL - 1, Math.floor((z - Z_LO) / (Z_HI - Z_LO) * N_COL)));
 function drawLidar() {
   const st = S.state, dpr = window.devicePixelRatio || 1;
   const w = cv.clientWidth * dpr; if (cv.width !== w) { cv.width = w; cv.height = w; }
@@ -203,13 +207,24 @@ function drawLidar() {
   const sf = st && st.safety;
   ctx.fillStyle = sf && sf.blocked ? 'rgba(248,81,73,.35)' : 'rgba(63,185,80,.18)';
   ctx.fillRect(c - 0.2 * s, c - 0.45 * s, 0.4 * s, 0.45 * s);
-  ctx.fillStyle = '#cfe3ff';
   const ps = Math.max(1.5 * dpr, 0.06 * s);
-  for (let i = 0; i < lidarPts.length; i += 2) {
+  const bins = Array.from({ length: N_COL }, () => []);
+  for (let i = 0; i + 2 < lidarPts.length; i += 3) {
     const x = lidarPts[i] / 100, y = lidarPts[i + 1] / 100;
     if (Math.abs(x) > R || Math.abs(y) > R) continue;
-    ctx.fillRect(c - y * s - ps / 2, c - x * s - ps / 2, ps, ps);
+    bins[zBin(lidarPts[i + 2] / 100)].push(c - y * s - ps / 2, c - x * s - ps / 2);
   }
+  bins.forEach((b, k) => {   // low first, so high obstacles stay on top
+    ctx.fillStyle = Z_COLORS[k];
+    for (let j = 0; j < b.length; j += 2) ctx.fillRect(b[j], b[j + 1], ps, ps);
+  });
+  // height legend (bottom-left)
+  const lh = 0.32 * w, lw = 8 * dpr, lx = 6 * dpr, ly = w - 8 * dpr - lh;
+  Z_COLORS.forEach((col, k) => { ctx.fillStyle = col; ctx.fillRect(lx, ly + lh * (1 - (k + 1) / N_COL), lw, lh / N_COL + 1); });
+  ctx.fillStyle = '#9fb0c4'; ctx.font = `${10 * dpr}px sans-serif`;
+  ctx.fillText(`${Z_HI} m`, lx + lw + 3 * dpr, ly + 8 * dpr);
+  ctx.fillText(`${((Z_LO + Z_HI) / 2).toFixed(1)} m`, lx + lw + 3 * dpr, ly + lh / 2 + 4 * dpr);
+  ctx.fillText(`${Z_LO} m`, lx + lw + 3 * dpr, ly + lh);
   // robot footprint (S1 ~0.32 x 0.24 m), forward = up
   ctx.fillStyle = '#4a90d9'; ctx.fillRect(c - 0.12 * s, c - 0.16 * s, 0.24 * s, 0.32 * s);
   ctx.beginPath(); ctx.moveTo(c, c - 0.28 * s); ctx.lineTo(c - 0.07 * s, c - 0.17 * s); ctx.lineTo(c + 0.07 * s, c - 0.17 * s);
@@ -538,7 +553,7 @@ function connect() {
   es.onmessage = (ev) => {
     const st = JSON.parse(ev.data);
     S.state = st; lastMsg = Date.now();
-    if (st.lidar) lidarPts = st.lidar;
+    if (st.lidar3) lidarPts = st.lidar3;
     renderHeader(st); renderTopics(st); renderInfo(st); renderModules(st); renderVln(st); renderNav(st); updateMap(st); drawLidar();
   };
   es.onerror = () => { $('conn').textContent = '重连中'; $('conn').className = 'pill bad'; };
