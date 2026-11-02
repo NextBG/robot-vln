@@ -18,3 +18,7 @@ __pycache__/
 *.mcap
 checkpoints/
 .pydeps/
+
+# Vendor materials (copyrighted, not redistributed; get them from WHEELTEC)
+vendor/
+ros2_ws/src/third_party/wheeltec_gps_path/

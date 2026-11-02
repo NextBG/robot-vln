@@ -39,14 +39,12 @@ docs/
   hardware/      各硬件资料（底层控制、接线、参数、坑）
   vln/           SOTA 调研、部署架构
   setup/         车载电脑 / GPU 服务器 安装指南
-vendor/
-  wheeltec_g60/  厂家资料（手册 PDF、ROS2/Python 例程、CAD）
+vendor/          （不入库）厂家版权资料放这里，如 wheeltec_g60/ 手册 PDF、例程、CAD
 ros2_ws/
   robot.repos    第三方 ROS2 源码（vcs import）
   can.repos      可选：S1 内部 CAN 方案
   src/vln_robot_bringup/   整车启动（底盘+相机+雷达+GNSS+TF）
   src/vln_robot_client/    VLN HTTP 客户端、雷达->深度投影、安全停障
-  src/third_party/wheeltec_gps_path/  厂家 GPS 轨迹包
 scripts/onboard/ 车载电脑一键安装脚本（00~05）
 server/          GPU 端 InternVLA-N1 HTTP 服务封装
 tools/           独立测试脚本（S1 轮速测试等）

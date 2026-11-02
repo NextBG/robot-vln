@@ -1,6 +1,6 @@
 # WHEELTEC G60 GNSS 模块
 
-厂家原始资料在 [`vendor/wheeltec_g60/`](../../vendor/wheeltec_g60/)：手册 PDF、ROS2 例程、Python 例程、CAD。
+厂家原始资料（手册 PDF、ROS2/Python 例程、CAD）随模块附送，或向 WHEELTEC 索取。这些资料有版权，本仓库不收录；本地可放在 `vendor/wheeltec_g60/`（已加入 .gitignore）。
 
 ## 1. 参数（摘自厂家手册）
 
@@ -36,7 +36,7 @@ ros2 topic echo /fix
 ```
 
 参数见 `ros2_ws/src/vln_robot_bringup/config/gnss.yaml`，`robot.launch.py` 中 `use_gnss:=true` 会启动它。
-厂家 `wheeltec_gps_path` 包（GPS 轨迹转 Path，可在 RViz 显示）已放到 `ros2_ws/src/third_party/wheeltec_gps_path/`。
+厂家例程里的 `wheeltec_gps_path` 包（GPS 轨迹转 Path，在 RViz 显示）可选用，需要时自行放到 `ros2_ws/src/third_party/`（已 gitignore）。
 
 ## 4. 提升性能
 
