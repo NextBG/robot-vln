@@ -79,8 +79,8 @@ GPS 环湖循迹（滴水湖，凯悦嘉轩往返）见 [docs/navigation/dishui-
 
 1. ✅ 资料整理、仓库与环境脚本
 2. ✅ 在 M11 上装机，逐个打通传感器（`scripts/onboard/check_hardware.sh`）
-3. ⬜ 相机标定 + 外参测量；S1 底盘遥控测试（`tools/s1_wheel_test.py`、teleop）
-4. 🔶 GPU 服务器部署 InternVLA-N1（✅ 推理服务已跑通，约 0.3 s/步），先跑仿真评测（VLN-CE R2R）对齐论文指标
-5. ⬜ 真机闭环：`vln_client` ↔ 服务器，室内短指令测试
+3. 🔶 相机标定 + 外参测量；S1 底盘遥控测试（`tools/s1_wheel_test.py`、teleop）（✅ 广角标定；⬜ 外参、地面里程计尺度）
+4. 🔶 GPU 服务器部署 InternVLA-N1（✅ 推理服务已跑通，0.2–0.5 s/步；✅ LiDAR+单目深度补全；✅ 修复 S1 显存溢出），先跑仿真评测（VLN-CE R2R）对齐论文指标
+5. 🔶 真机闭环：`vln_client` ↔ 服务器（✅ M11→GPU SSH 隧道；⬜ 不接轮子空跑；⬜ 低速实跑）
 6. 🔶 GPS 环湖循迹（vln_robot_nav，已完成仿真，待实地测试）
 7. ⬜ 可选：FAST-LIO2 里程计替代轮速计；StreamVLN / JanusVLN 对比实验

@@ -2,8 +2,8 @@
 
 ## 数据流
 
-1. `usb_cam` → `/camera/image_raw`（640×480 RGB）
-2. `lidar_depth_projector`：`/livox/lidar` + `/camera/camera_info` + TF(`camera_optical_frame` ← `livox_frame`) → `/vln/depth`（32FC1，米）
+1. `wide_cam_node`（默认，`camera_driver:=wide`；4000×3000 全传感器缩到 640×480，HFOV 66°，约 9 fps）→ `/camera/image_raw` + `/camera/camera_info`；也可以用 `camera_driver:=usb_cam`（640×480 裁切，HFOV 50°）
+2. `lidar_depth_projector`：`/livox/lidar` + `/camera/camera_info` + TF(`camera_optical_frame` ← `livox_frame`) → `/vln/depth`（32FC1，米，稀疏，约 3% 像素有值）。服务器端会用 Depth-Anything-V2 补全这张深度图并按 LiDAR 对齐尺度，详见 [gpu-server.md](../setup/gpu-server.md)
 3. `vln_client`（默认约 2 Hz）：拿最新的 RGB（+深度）和 `/odom` 位姿 → HTTP `POST /eval_dual` → 解析回复
    - `discrete_action`：0 停止，1 前进 0.25 m，2 左转 15°，3 右转 15°（5 = 低头，由服务端处理）→ 转成世界坐标目标点 → 点到点控制器
    - `trajectory`：机体系 (x 前, y 左) 路点 → 按拍照时刻的位姿转到世界系 → pure pursuit
@@ -18,6 +18,7 @@ POST http://<server>:5801/eval_dual   multipart/form-data
   depth: image/png  (uint16, 值 = 米 × 10000)
   json : {"reset": true|false, "idx": <int>, "instruction": "<自然语言指令>"}
 → {"discrete_action": [1,1,2]}  或  {"trajectory": [[x,y],...], "pixel_goal": [u,v]}
+   另附 "latency_s"，以及 "depth": {"lidar_frac", "lidar_px", "mono_scale", "fill_s"}
 ```
 
 ## ROS 接口
